@@ -171,12 +171,12 @@ func TestHelloLineIsFirstAndExact(t *testing.T) {
 	if got, _ := hello["driver"].(string); got != "eapp-go" {
 		t.Fatalf("driver = %q, want eapp-go", got)
 	}
-	if got, _ := hello["eappVersion"].(string); got != "3.0.0" {
-		t.Fatalf("eappVersion = %q, want 3.0.0", got)
+	if got, _ := hello["eappVersion"].(string); got != "3.3.0" {
+		t.Fatalf("eappVersion = %q, want 3.3.0", got)
 	}
 	layers, _ := hello["layers"].([]any)
-	if len(layers) != 1 || layers[0] != "core" {
-		t.Fatalf("layers = %v, want [core] (this driver implements only the Composition Core)", layers)
+	if len(layers) != 2 || layers[0] != "core" || layers[1] != "interaction" {
+		t.Fatalf("layers = %v, want [core interaction] (this driver implements the Composition Core and the Interaction Layer, and not the State layer)", layers)
 	}
 	// Exactly one hello line, and it is the very first output.
 	if count := strings.Count(strings.TrimSpace(renderLines(h)), "\"hello\":true"); count != 1 {

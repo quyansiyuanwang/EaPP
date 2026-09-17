@@ -149,6 +149,19 @@ Subscription 合规，对应 `SW-1`）。
 | `@eapp/transport-socket` | 跨进程 Transport：一个 broker 进程持有日志，其余进程通过 TCP 拿到 `SocketTransport` |
 | `@eapp/runtime` | Bootstrap + 发现 / 连接 / 激活 / 通信 / 调用 |
 
+第二份证据 `implementations/go/` 的组织方式与上表**刻意不同** ——
+它是从规范正文写出来的，不是参考实现的结构抄一遍：
+
+| 文件 | 内容 |
+|---|---|
+| `eapp/core.go` `registry.go` `identity.go` `capability.go` `plugin.go` `lifecycle.go` `binding.go` `discovery.go` `bootstrap.go` `semver.go` | Composition Core（v3.0） |
+| `eapp/channel.go` `cursor.go` `delivery.go` `transport.go` | Interaction 的实体与传输边界（v3.1 §2 / §4 / §6 / §10） |
+| `eapp/subscription.go` `lease.go` `group.go` | 消费：订阅、租约、竞争消费作用域（v3.1 §5 / §7 / §8 / §9） |
+| `eapp/interaction.go` | 把上述各部分接成一层，并接回 Composition Core（§11 / §12） |
+| `cmd/eapp-driver/` | driver：把这一层暴露给黑盒 harness |
+
+未实现 v3.2 State Mode。**不做的事不声明**，见 §6。
+
 ---
 
 ## 5. 相对规范的偏离（全部已登记）

@@ -27,6 +27,28 @@ const (
 	CodeInternal              = "EAPP_INTERNAL"
 )
 
+// Error codes added by EaPP v3.1.0 Interaction §13.
+//
+// They extend the §16 union rather than replacing it (§13: "各层的 code 联合按层
+// 扩展，MUST NOT 重命名或改义既有码"), so the interaction layer reuses the Core
+// codes where the condition is a Core one — a Channel created from a nonexistent
+// Binding is EAPP_BINDING_INVALID, not a new code.
+const (
+	CodeChannelInvalid      = "EAPP_CHANNEL_INVALID"
+	CodeChannelClosed       = "EAPP_CHANNEL_CLOSED"
+	CodeChannelDraining     = "EAPP_CHANNEL_DRAINING"
+	CodeModeInvalid         = "EAPP_MODE_INVALID"
+	CodeDeliveryUnsupported = "EAPP_DELIVERY_UNSUPPORTED"
+	CodeCursorInvalid       = "EAPP_CURSOR_INVALID"
+	CodeCursorUnsupported   = "EAPP_CURSOR_UNSUPPORTED"
+	CodeCursorTooOld        = "EAPP_CURSOR_TOO_OLD"
+	CodeSubscriptionInvalid = "EAPP_SUBSCRIPTION_INVALID"
+	CodeLeaseExpired        = "EAPP_LEASE_EXPIRED"
+	CodeLeaseClosed         = "EAPP_LEASE_CLOSED"
+	CodeLeaseConflict       = "EAPP_LEASE_CONFLICT"
+	CodeTimeout             = "EAPP_TIMEOUT"
+)
+
 // Error is the single error type produced by this implementation.
 //
 // It mirrors the `EappError` shape of §16 (`code`, `message`, plus optional
@@ -127,4 +149,58 @@ func errLifecycleInvalid(format string, args ...any) *Error {
 
 func errDiscoveryScopeInvalid(format string, args ...any) *Error {
 	return newError(CodeDiscoveryScopeInvalid, format, args...)
+}
+
+// The interaction-layer constructors, for the same reason: a code string typed
+// by hand at a call site is a protocol violation no compiler catches.
+
+func errChannelInvalid(format string, args ...any) *Error {
+	return newError(CodeChannelInvalid, format, args...)
+}
+
+func errChannelClosed(format string, args ...any) *Error {
+	return newError(CodeChannelClosed, format, args...)
+}
+
+func errChannelDraining(format string, args ...any) *Error {
+	return newError(CodeChannelDraining, format, args...)
+}
+
+func errModeInvalid(format string, args ...any) *Error {
+	return newError(CodeModeInvalid, format, args...)
+}
+
+func errDeliveryUnsupported(format string, args ...any) *Error {
+	return newError(CodeDeliveryUnsupported, format, args...)
+}
+
+func errCursorInvalid(format string, args ...any) *Error {
+	return newError(CodeCursorInvalid, format, args...)
+}
+
+func errCursorUnsupported(format string, args ...any) *Error {
+	return newError(CodeCursorUnsupported, format, args...)
+}
+
+func errCursorTooOld(format string, args ...any) *Error {
+	return newError(CodeCursorTooOld, format, args...)
+}
+
+func errSubscriptionInvalid(format string, args ...any) *Error {
+	return newError(CodeSubscriptionInvalid, format, args...)
+}
+
+func errLeaseExpired(format string, args ...any) *Error {
+	return newError(CodeLeaseExpired, format, args...)
+}
+
+func errLeaseClosed(format string, args ...any) *Error {
+	return newError(CodeLeaseClosed, format, args...)
+}
+
+// errUnsupported is EAPP_UNSUPPORTED: §10.4's TR-9 code for a feature the
+// transport does not have. api.Unsupported exposes the same constructor to
+// callers outside the package.
+func errUnsupported(format string, args ...any) *Error {
+	return newError(CodeUnsupported, format, args...)
 }

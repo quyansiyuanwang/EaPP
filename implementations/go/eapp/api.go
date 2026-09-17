@@ -39,6 +39,24 @@ func InvalidBinding(format string, args ...any) error {
 	return errBindingInvalid(format, args...)
 }
 
+// InvalidChannel returns an EAPP_CHANNEL_INVALID error, for callers that reject a
+// request naming no usable Channel before the Interaction Layer sees it.
+//
+// It exists for the same reason InvalidIdentity and InvalidBinding do: §13's
+// interaction codes extend §16's union rather than replacing it, and a driver
+// that pasted "EAPP_CHANNEL_INVALID" by hand would be one typo away from a
+// protocol violation no compiler catches.
+func InvalidChannel(format string, args ...any) error {
+	return errChannelInvalid(format, args...)
+}
+
+// InvalidSubscription returns an EAPP_SUBSCRIPTION_INVALID error: §13's code for
+// a subscription that cannot be constructed as asked — or, at the driver's
+// boundary, for a handle that names no subscription this process holds.
+func InvalidSubscription(format string, args ...any) error {
+	return errSubscriptionInvalid(format, args...)
+}
+
 // ParseBindingState converts a wire string into a BindingState.
 //
 // It rejects anything outside §6.2's three states, so a caller cannot accidentally
