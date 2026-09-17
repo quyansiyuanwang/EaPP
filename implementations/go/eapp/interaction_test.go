@@ -1424,6 +1424,63 @@ func TestCompositionToInteractionReportsBindingTransitions(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Transport capability gate — §10.2, §10.4, TR-3, TR-4, TR-9
+// ---------------------------------------------------------------------------
+
+func TestTR4AChannelMustNotUseBeyondTheTransportsCapabilities(t *testing.T) {
+	core := NewCore()
+	capability := capabilityOf("casing.apply", "1.0.0")
+	provider, consumer := activePair(t, core, capability)
+	binding, err := core.Bind(BindRequest{
+		From:       provider.Identity,
+		To:         consumer.Identity,
+		Capability: CapabilityRef{Name: capability.Name, Version: capability.Version},
+	})
+	if err != nil {
+		t.Fatalf("bind: %v", err)
+	}
+
+	// A transport that declares no at-least-once delivery cannot carry a stream
+	// or state Channel, which §4.4 makes at-least-once only.
+	noDelivery := newInteractionWithCapabilities(core, TransportCapabilities{
+		SupportsCursor:     true,
+		Ordering:           "global",
+		DurabilityBoundary: "process",
+	})
+	_, err = noDelivery.CreateChannel(CreateChannelRequest{Binding: binding.ID, Mode: ModeStream})
+	wantCode(t, err, CodeUnsupported) // TR-4, TR-9
+	// An event Channel on the same transport is fine: at-most-once is declared
+	// by default in this test's zero capabilities... which it is not, so the
+	// refusal applies there too.
+	if _, err := noDelivery.CreateChannel(CreateChannelRequest{Binding: binding.ID, Mode: ModeEvent}); err == nil {
+		t.Fatal("a transport declaring neither guarantee MUST refuse both (TR-4)")
+	}
+
+	// A transport that carries messages but has no cursors cannot carry a stream
+	// Channel, and CR-5 names the missing feature in the code.
+	noCursor := newInteractionWithCapabilities(core, TransportCapabilities{
+		Delivery:           TransportDeliveryCapabilities{AtMostOnce: true, AtLeastOnce: true},
+		Ordering:           "per-source",
+		SupportsLease:      false,
+		DurabilityBoundary: "machine",
+	})
+	_, err = noCursor.CreateChannel(CreateChannelRequest{Binding: binding.ID, Mode: ModeStream})
+	wantCode(t, err, CodeCursorUnsupported)
+	if _, err := noCursor.CreateChannel(CreateChannelRequest{Binding: binding.ID, Mode: ModeEvent}); err != nil {
+		t.Fatalf("an event channel needs no cursor: %v", err)
+	}
+}
+
+// newInteractionWithCapabilities builds a layer over a transport that declares
+// exactly the given capabilities.
+func newInteractionWithCapabilities(core *Core, capabilities TransportCapabilities) *Interaction {
+	return NewInteractionWithTransport(core, capabilityTransport{
+		inner:        NewMemoryTransport(),
+		capabilities: capabilities,
+	})
+}
+
+// ---------------------------------------------------------------------------
 // test transports
 // ---------------------------------------------------------------------------
 
@@ -1478,3 +1535,25 @@ func (c compactingTransport) Close() error { return c.inner.Close() }
 func (c compactingTransport) Floor(channel string) (Cursor, error) { return c.floor, nil }
 
 func (c compactingTransport) Head(channel string) (Cursor, error) { return c.inner.Head(channel) }
+
+// capabilityTransport is a Transport that declares exactly what it is told to,
+// so that TR-3's "MUST NOT pretend" can be tested from the other side: a Channel
+// is only allowed to use what was declared (TR-4).
+type capabilityTransport struct {
+	inner        *MemoryTransport
+	capabilities TransportCapabilities
+}
+
+func (c capabilityTransport) ID() string { return "declared" }
+
+func (c capabilityTransport) Capabilities() TransportCapabilities { return c.capabilities }
+
+func (c capabilityTransport) Send(channel string, message any) (Cursor, error) {
+	return c.inner.Send(channel, message)
+}
+
+func (c capabilityTransport) ReadAfter(channel string, after *Cursor, pattern Pattern) ([]TransportMessage, error) {
+	return c.inner.ReadAfter(channel, after, pattern)
+}
+
+func (c capabilityTransport) Close() error { return c.inner.Close() }
