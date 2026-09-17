@@ -130,41 +130,50 @@ Subscription 合规，对应 `SW-1`）。
 |---|---|
 | CRDT | v3.2 §12.4 已裁定其 `supportsStateRevision = false`，属于 Extension |
 | Trust Domain 权限 | v3.0 §8.2 只冻结了 trust level 的分类语义，未冻结授权 |
-| 跨进程的 ConsumerGroup | 见下 |
+| 跨进程的请求分发 | 见下 |
 
 ### 跨进程：哪些成立，哪些不成立
 
-Transport 跨进程已经实现：`@eapp/transport-socket` + `examples/cross-process/`
-（broker 进程 + 两个 worker 进程）。成立的是：
+Transport 与 ConsumerGroup 都跨过来了：`@eapp/transport-socket` +
+`examples/cross-process/`（broker 进程 + 两个 worker 进程 + 本进程）。
 
 | 成立 | 怎么证 |
 |---|---|
 | 一本共享的、全序的日志 | 三个进程读写同一本；位置连续 |
 | Cursor 是共享位置，在哪个进程都有效 | 一个进程分配的位置，另一个进程直接读 |
-| **跨进程 CAS 不丢更新** | 两个 worker 同时在同一个 key 上 read-modify-write，计数器与期望值一致 |
+| **跨进程 CAS 不丢更新** | 两个 worker 同时 read-modify-write 同一个 key，计数器与期望值一致 |
+| **跨进程竞争消费（CG-3）** | 两个 worker 进程加入**同一个**组，每条消息恰好被一个成员持有 |
+| 组游标、成员数跨进程共享（CG-2） | 两个成员数得到同一个 memberCount；组游标由 broker 推进 |
 | 投递保证、保留窗口、`EAPP_CURSOR_TOO_OLD` | 与内存实现同一套语义，同一批测试 |
 | 错误码跨边界保持 | `EAPP_REVISION_CONFLICT` 连同 `retryable` 原样到达调用方 |
 
-**不成立的是 ConsumerGroup。** 它的认领表（claim registry）是进程内内存，
-而 §8.3 说"一次 claim 就是一次 Lease"、L-2 因此是 CG-3 的保证 ——
-这套实现的 Lease 从未出过进程，所以它保证不了跨进程的 CG-3：
-两个进程会各自以为自己持有同一个位置，每条消息被处理两次，而没有任何报错。
+竞争消费之所以跨得过去，是因为**竞争状态被搬到了它必须待的地方**。
+§8.3 说"一次 claim 就是一次 Lease"，而 Lease 要有意义，就必须和消息处在
+同一个所有权域里：谁持有哪个位置，只能在数据的所在地决定。
 
-现在这条路径**明确失败**（`EAPP_UNSUPPORTED`），而不是静默降级（TR-4）。
-失败信息里写的是"本实现的认领表是进程内的"，因为这是实现的限制，不是 Transport 的限制 ——
-一个同时共享认领表的 Transport 可以解除这个拒绝。
+实现上，group 的共享状态（组游标 + 认领表）被提取成一个可注入的
+`GroupStore`。默认实现 `LocalGroupStore` 是进程内内存 —— 这正是它以前唯一的形式，
+也正是它跨不过进程的原因。`@eapp/transport-socket` 提供 broker 版本；
+`Transport` 可以声明 `sharesGroupState` 并提供一个 `groupStore()`，
+Interaction Layer 在存在时使用它。
 
-同样只在单进程内成立的还有**请求分发**：`runtime.invoke()` 的 dispatcher 跑在调用方进程里，
-所以它只能服务本进程注册的插件。跨进程的 request/response 需要提供方一侧也跑一个 dispatcher，
-而那又需要"每个 Channel 恰好一个服务者"的协调 —— 与认领表是同一个问题。
+**仍然不成立的是跨进程的请求分发。** `runtime.invoke()` 的 dispatcher 跑在调用方进程里，
+所以它只能服务本进程注册的插件。跨进程的 request/response 需要提供方一侧也跑一个
+dispatcher，而那又需要"每个 Channel 恰好一个服务者"的协调 —— 与认领表是同一类问题，
+但还没有解决。
+
+一个附带发现：`prefetch`（一个成员一次可以领走多少）在跨进程时是**关键**参数。
+CG-3 保证排他，不保证公平；默认 16 意味着最先醒来的成员会把当时可见的工作整批揽下，
+另一个进程只能干等。默认值偏向单进程吞吐，多进程的池子通常要调小。
 
 ### 已经关掉的缺口
 
-下面八项曾列在本节，现已实现并有回归测试。
+下面九项曾列在本节，现已实现并有回归测试。
 
 | 项 | 关闭方式 |
 |---|---|
-| ~~跨进程 Transport~~ | `@eapp/transport-socket`：一个 broker 进程独占位置分配，其余进程通过 TCP 拿到一个**真正的** `SocketTransport`（v3.1 + v3.2 全部方法）。它把 `durabilityBoundary` 诚实地声明为 `'machine'` —— 同一台机器上的每个进程都看得到，但它不持久、也不跨集群。`examples/cross-process/` 用三个真进程验证：共享日志、跨进程 CAS 不丢更新、以及跨不过去的那一半（见 §6） |
+| ~~跨进程 Transport~~ | `@eapp/transport-socket`：一个 broker 进程独占位置分配，其余进程通过 TCP 拿到一个**真正的** `SocketTransport`（v3.1 + v3.2 全部方法）。它把 `durabilityBoundary` 诚实地声明为 `'machine'` —— 同一台机器上的每个进程都看得到，但它不持久、也不跨集群。`examples/cross-process/` 用三个真进程验证 |
+| ~~跨进程的 ConsumerGroup~~ | 竞争状态（组游标 + 认领表）从进程内内存提取为可注入的 [`GroupStore`](../packages/interaction/src/group-store.ts)，默认实现保持逐字不变的行为，socket Transport 提供 broker 版本。于是 CG-3 跨得过进程边界：两个 worker 进程加入同一个组，每条消息恰好被一个成员持有。在此之前这条路径会**明确失败**（TR-4），因为认领表从未出过进程 |
 | ~~TR-4 部分未落实~~ | `assertTransportSupportsDelivery()` 在 `createChannel` 中校验 `capabilities.delivery`。未声明 `atLeastOnce` 的 Transport 不能承载 `stream` / `state` Channel —— 而这正是 TR-3「MUST NOT 伪装支持」要防的事 |
 | ~~`EAPP_CHANNEL_DRAINING` 不可达~~ | `ChannelImpl.requireActive()` 现在把三种状态区分开：`CLOSED` → `EAPP_CHANNEL_CLOSED`，`DRAINING` → `EAPP_CHANNEL_DRAINING`，`OPEN` → `EAPP_CHANNEL_INVALID`。并且它被真正调用了：`runtime.publish()` / `subscribe()` 在 DRAINING 的 Channel 上会失败 —— 这是 CC-2 + §2.4「DRAINING = 停止接收新消息」的直接后果 |
 | ~~`EAPP_CURSOR_INVALID` 不可达~~ | `MemoryTransport` 校验收到的 cursor 必须由本实例签发（`readAfter` / `readChangesAfter` / `resolveAnchor`）。接受一个外来 cursor 会静默读到错的位置，或什么都读不到 |

@@ -828,15 +828,29 @@ Channel 都会叫 `ch-1`，于是它们各自读着自己那本日志，还都�
 所以 `setStateWithCAS` 仍然是原子的。示例里两个 worker 同时 read-modify-write 同一个
 key，拿 `EAPP_REVISION_CONFLICT` 的一方重读再写 —— 计数器最终与期望值一致，没有丢更新。
 
-**④ 有些东西跨不过去，而且必须先说。** `ConsumerGroup` 的认领表在进程内内存里，
-所以两个进程会各自以为持有同一个位置，同一条消息被处理两次，**而没有任何报错**。
-与其给一个错答案，不如明确拒绝：这类 Transport 上 `openConsumerGroup` 会抛
-`EAPP_UNSUPPORTED`。这不是 Transport 的缺陷，是实现的限制 ——
-认领表没有出过进程，所以它保证不了跨进程的 CG-3。
+**④ 所有权状态必须和它保护的数据待在一起。** 这是最容易漏掉的一条。
+`ConsumerGroup` 的认领表原本是进程内内存，于是两个进程会各自以为持有同一个位置，
+同一条消息被处理两次，**而没有任何报错** —— 因为消息已经跨过去了，而"谁持有它"
+没有。§8.3 说"一次 claim 就是一次 Lease"，Lease 要有意义就必须和消息处在同一个
+所有权域里。
 
-> **一条给自己的检查。** 写一个跨进程 Transport 时，逐条问："这个决定是**在哪台机器上**
-> 做出的？" 位置分配、Channel 命名、原子性、所有权 —— 每一个都必须只有一个做决定的地方。
-> 找不出那个地方的，就是还没跨过去。
+所以 Transport 可以额外地提供共享的组状态：
+
+```typescript
+// 可选的 Transport 扩展，不属于冻结的 v3.1 §10 接口
+readonly sharesGroupState: true;
+groupStore(context: {
+  channel: string; name: string; claimTtlMs: number; initialCursor: Cursor;
+}): GroupStore;
+```
+
+Interaction Layer 在存在时使用它。**不提供的时候它不会退回到本地认领表** ——
+那正是静默降级的形状：`durabilityBoundary` 比进程宽、却又没有共享组状态时，
+`openConsumerGroup()` 直接抛 `EAPP_UNSUPPORTED`。
+
+这条规则值得记成一句话：**每个"谁拥有什么"的判断，都必须只有一个做判断的地方，
+而那个地方必须在数据的同一侧。** 位置分配、Channel 命名、原子性、认领表 ——
+四个都是这个形状，漏掉任何一个，错误都是安静的。
 
 ---
 

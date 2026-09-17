@@ -534,7 +534,7 @@ for await (const message of subscription) {
 
 ```typescript
 // 先在 Channel 上开一个组（CG-1：组名在同一 Channel 内唯一）
-await runtime.openConsumerGroup(channel.id, { name: 'workers' });
+await runtime.openConsumerGroup(channel.id, { name: 'workers', prefetch: 1 });
 
 // 成员加入（CG-8：必须指名一个已存在的组）
 const member = await runtime.joinConsumerGroup(channel.id, 'workers');
@@ -553,14 +553,25 @@ for await (const message of member) {
 
 - **`openConsumerGroup` 与 `joinConsumerGroup` 是两步，不能合并。** 组必须先在
   Channel 上存在；直接 join 一个不存在的组会以 `EAPP_SUBSCRIPTION_INVALID` 失败。
-- **组不是调度器。** CG-3 只保证同一条消息不会同时被同组的两个成员持有，
-  **不保证分配均匀** —— 一次 `pull` 可以领走一整批，一个成员可能把当前可见的工作
-  整批揽下。要均匀，得让成员自己限制领多少。
+- **`prefetch` 是唯一对抗垄断的旋钮。** CG-3 保证排他，**不保证公平**：
+  最先醒来的成员会把当时可见的工作整批领走（默认上限 16），其余成员只能等它做完。
+  单进程里这多半无所谓；一个**跨进程**的工作池必须调小 ——
+  [`examples/cross-process/`](../../examples/cross-process/index.ts) 用 `1`，
+  于是两个 worker 进程各拿一半。
 - **排他性不等于不重复。** 成员崩溃后工作会被重新投递（这就是 `at-least-once`），
   所以同一个 job 可能被执行两次。去重是应用的事（幂等键、去重表），不是协议的事。
 
-完整的、可运行的例子见 [`examples/job-queue/`](../../examples/job-queue/index.ts)：
-竞争消费、nack 重投、成员死在岗位上、三个组共存于一条 Channel。
+**组能有多宽，取决于竞争状态放在哪。** 认领表在进程内内存里时，两个进程会各自以为
+持有同一个位置 —— 每条消息被处理两次，而没有任何报错。所以跨进程的组要求 Transport
+提供共享的组状态（`sharesGroupState` + `groupStore()`）；不提供时 `openConsumerGroup()`
+会**明确失败**（`EAPP_UNSUPPORTED`），而不是静默降级。细节见
+[`ConsumerGroup`](../reference/consumer-group.md)。
+
+完整的、可运行的例子有两份：
+[`examples/job-queue/`](../../examples/job-queue/index.ts) 走单进程（竞争消费、nack 重投、
+成员死在岗位上、三个组共存于一条 Channel），
+[`examples/cross-process/`](../../examples/cross-process/index.ts) 走跨进程
+（两个 worker 进程加入同一个组，每条订单恰好被一个进程处理）。
 
 ---
 

@@ -4,18 +4,18 @@
  *   npx tsx examples/cross-process/index.ts
  *   pnpm run example:cross-process
  *
- * 另外三个示例都在一个进程里。这一个把三层架在真正跨越进程边界的 Transport 上：
+ * 另外四个示例都在一个进程里。这一个把三层架在真正跨越进程边界的 Transport 上：
  *
- *   broker 进程        数据的唯一所有者，独占位置分配
- *   worker 进程 × 2    各自跑一个完整的运行时，通过 socket 读写同一本日志
- *   本进程             发布消息，并在最后核对结论
+ *   broker 进程        数据的唯一所有者，独占位置分配，也是竞争状态的唯一所有者
+ *   worker 进程 × 2    各自跑一个完整的运行时，加入**同一个** ConsumerGroup
+ *   本进程             发布订单，并核对结论
  *
- * 跨过去之后，有几件事会**变**，而它们正是这个示例存在的理由：
+ * 跨过去之后有几件事会**变**，而它们正是这个示例存在的理由：
  *
  *   位置必须由一方独占分配 —— 两个进程各自发号，得到的不是 cursor，是巧合
  *   Channel 的 id 必须靠推导而非计数 —— 否则两个进程用同一个名字读两本日志
- *   状态要在 broker 那里 CAS —— 原子性不可能靠"两边都读一次再比一下"实现
- *   ConsumerGroup **跨不过去** —— 它的认领表在本进程内存里，见第 4 段
+ *   竞争状态必须和消息待在同一处 —— 认领表在进程内内存里，CG-3 就保证不了
+ *   请求分发仍然只在进程内 —— 见最后一段
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -23,7 +23,6 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { EappError } from '../../packages/core/src/index.js';
 import { EappRuntime } from '../../packages/runtime/src/index.js';
 import { SocketTransport } from '../../packages/transport/socket/src/index.js';
 
@@ -42,6 +41,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const tsx = createRequire(import.meta.url).resolve('tsx/cli');
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+const ORDERS_TO_SEND = 6;
 
 // ---------------------------------------------------------------------------
 // 自检
@@ -68,13 +69,11 @@ function banner(title: string): void {
 interface Child {
   name: string;
   process: ChildProcessWithoutNullStreams;
-  /** Every JSON line the child printed, unparsed. */
   lines: Array<Record<string, unknown>>;
 }
 
 function launch(script: string, name: string, args: string[]): Child {
   const child = spawn(process.execPath, [tsx, join(HERE, script), ...args]);
-
   const record: Child = { name, process: child, lines: [] };
 
   let buffered = '';
@@ -100,6 +99,9 @@ function launch(script: string, name: string, args: string[]): Child {
   return record;
 }
 
+const linesOfType = (child: Child, type: string): Array<Record<string, unknown>> =>
+  child.lines.filter((line) => line.type === type);
+
 async function waitForLine(
   child: Child,
   type: string,
@@ -117,6 +119,11 @@ async function waitForLine(
     await sleep(20);
   }
   throw new Error(`${child.name} never reported '${type}'`);
+}
+
+/** Ask a worker to finish: it closes its group membership and reports what it did. */
+function signalStop(child: Child): void {
+  child.process.stdin.write('stop\n');
 }
 
 /** Terminate a child and actually wait for it: leaving orphans behind hangs the parent. */
@@ -146,7 +153,6 @@ async function main(): Promise<void> {
     console.log(`  broker 进程已就绪  pid=${String(brokerChild.process.pid)}  port=${port}`);
     console.log(`  transport id = ${String(ready?.id)}（每个 cursor 都带这个前缀）`);
 
-    // 本进程也用同一个 broker，但**只**把下层接起来，不跑插件。
     const transport = await SocketTransport.connect({ port });
     console.log(`  本进程连接后 adopt 到的 id = ${transport.id}  boundary=${transport.capabilities.durabilityBoundary}`);
 
@@ -158,7 +164,7 @@ async function main(): Promise<void> {
     );
 
     // -----------------------------------------------------------------------
-    banner('2. 一个运行时跑在 socket 上：发布与订阅');
+    banner('2. 一个运行时跑在 socket 上');
     // -----------------------------------------------------------------------
 
     const runtime = EappRuntime.create({ domain: 'eapp.xproc', transport, channelId });
@@ -179,38 +185,43 @@ async function main(): Promise<void> {
       mode: 'stream',
     });
     console.log(`  channel = ${channel.id}`);
-    console.log(`  —— 这个名字是**推导**出来的，不是计数的：每个进程都算得出同一个`);
+    console.log('  —— 这个名字是**推导**出来的，不是计数的：每个进程都算得出同一个');
 
-    // 计数器 Channel：两个 worker 会在这上面用 CAS 抢同一把锁。
+    // 计数器 Channel：两个 worker 会在这上面用 CAS 抢同一个 key。
     runtime.register({
       manifest: { identity: LEDGER, capabilities: [COUNTER] },
       handlers: {},
     });
     const counter = await runtime.stateChannel(COUNTER_BINDING);
 
-    const orders: Order[] = [
-      { id: 1, total: 120 },
-      { id: 2, total: 80 },
-      { id: 3, total: 340 },
-      { id: 4, total: 15 },
-    ];
+    // 本进程自己订阅一份，用来对照：这是 fan-out，不是竞争。
+    const mine: number[] = [];
+    const ownSubscription = await runtime.subscribe(channel.id, { all: true });
+    const ownDrain = (async () => {
+      for await (const message of ownSubscription) {
+        mine.push((message.payload as Order).id);
+        await message.ack();
+        if (mine.length >= ORDERS_TO_SEND) return;
+      }
+    })().catch(() => undefined);
 
-    // 先让两个 worker 上线，再发布 —— 它们从 'latest' 开始订阅。
+    // -----------------------------------------------------------------------
+    banner('3. 两个 worker 进程加入同一个组');
+    // -----------------------------------------------------------------------
+
     const alpha = launch('worker.ts', 'alpha', [
       '--port', String(port), '--name', 'alpha',
       '--orders', channel.id, '--counter', counter.id,
-      '--rounds', String(orders.length),
     ]);
     const beta = launch('worker.ts', 'beta', [
       '--port', String(port), '--name', 'beta',
       '--orders', channel.id, '--counter', counter.id,
-      '--rounds', String(orders.length),
     ]);
     workers.push(alpha, beta);
 
     const alphaReady = await waitForLine(alpha, 'ready');
     const betaReady = await waitForLine(beta, 'ready');
-    console.log(`\n  alpha pid=${String(alphaReady?.pid)}   beta pid=${String(betaReady?.pid)}`);
+    console.log(`  alpha pid=${String(alphaReady?.pid)}   beta pid=${String(betaReady?.pid)}`);
 
     check('两个消费者真的在不同的进程里', alphaReady?.pid !== betaReady?.pid, [
       alphaReady?.pid, betaReady?.pid,
@@ -221,62 +232,76 @@ async function main(): Promise<void> {
       [alphaReady?.counterChannel, counter.id],
     );
 
+    const orders: Order[] = Array.from({ length: ORDERS_TO_SEND }, (_, index) => ({
+      id: index + 1,
+      total: (index + 1) * 37,
+    }));
     for (const order of orders) {
       await runtime.publish({ from: shop, to: fulfilment, capability: ORDERS, mode: 'stream' }, order);
     }
     console.log(`\n  published ${orders.length} 条订单`);
 
+    // 等两个 worker 一起把订单认领完。这里刻意不等某一个 worker ——
+    // 谁拿到哪一条由组决定，不由我们决定。
+    const handledTotal = (): number => linesOfType(alpha, 'order').length + linesOfType(beta, 'order').length;
+    const deadline = Date.now() + 10_000;
+    while (handledTotal() < orders.length && Date.now() < deadline) await sleep(20);
+
+    signalStop(alpha);
+    signalStop(beta);
     const alphaDone = await waitForLine(alpha, 'done');
     const betaDone = await waitForLine(beta, 'done');
 
     // -----------------------------------------------------------------------
-    banner('3. 结论');
+    banner('4. 结论：竞争消费跨过去了');
     // -----------------------------------------------------------------------
 
-    const expected = orders.map((o) => o.id);
-    check('alpha 看到全部订单', JSON.stringify(alphaDone?.seen) === JSON.stringify(expected), alphaDone?.seen);
-    check('beta 看到全部订单', JSON.stringify(betaDone?.seen) === JSON.stringify(expected), betaDone?.seen);
-    console.log(`  alpha 收到 ${JSON.stringify(alphaDone?.seen)}`);
-    console.log(`  beta  收到 ${JSON.stringify(betaDone?.seen)}`);
-    console.log('  两个独立进程各自订阅同一条 Channel —— 这是 fan-out，不是竞争：');
-    console.log('  它们各有各的 cursor，都读到了全部消息。');
+    const fromAlpha = (alphaDone?.seen as number[] | undefined) ?? [];
+    const fromBeta = (betaDone?.seen as number[] | undefined) ?? [];
+    const all = [...fromAlpha, ...fromBeta];
+    const expected = orders.map((order) => order.id);
 
-    // 每个 worker 每条消息 CAS 加一。丢更新的话，这个数会小于 8。
-    const total = orders.length * 2;
+    console.log(`  alpha 处理了 ${JSON.stringify(fromAlpha)}`);
+    console.log(`  beta  处理了 ${JSON.stringify(fromBeta)}`);
+
+    check('没有一条订单被两个进程都处理（CG-3）', new Set(all).size === all.length, all);
+    check('一条订单都没有丢', [...all].sort((a, b) => a - b).join(',') === expected.join(','), all);
+    check('两个进程都真的干了活', fromAlpha.length > 0 && fromBeta.length > 0, {
+      alpha: fromAlpha.length, beta: fromBeta.length,
+    });
+    console.log('  —— 每条订单恰好被**一个**成员持有，而这两个成员在不同的进程里。');
+    console.log('  CG-3 现在跨得过进程边界了：因为认领表和消息一起待在 broker 里。');
+
+    // 计数器：每条订单恰好加一次。竞争消费下应当是 6，不是 12。
     const cell = await counter.get('processed');
-    console.log(`\n  跨进程共享计数器：期望 ${total}，实际 ${String(cell?.value)}`);
-    check('没有丢更新', cell?.value === total, cell?.value);
+    console.log(`\n  跨进程共享计数器：期望 ${orders.length}，实际 ${String(cell?.value)}`);
+    check('每条订单恰好结算一次', cell?.value === orders.length, cell?.value);
     console.log(`  CAS 重试次数：alpha ${String(alphaDone?.retries)} / beta ${String(betaDone?.retries)}`);
-    console.log('  两个进程同时在同一个 key 上做 read-modify-write，只有 CAS 能保证不丢；');
-    console.log('  拿到 EAPP_REVISION_CONFLICT 的那一方重读再写 —— 这就是 retryable 的含义。');
-
-    // 位置来自同一本日志，因此在哪个进程里都有效。
-    const firstCursor = await transport.resolveAnchor(channel.id, 'earliest');
-    const reread = await transport.readAfter(channel.id, firstCursor, { all: true });
-    check('本进程能读到 worker 写下的位置之后的内容', reread.length >= orders.length, reread.length);
-    console.log(`\n  本进程从 ${firstCursor || '(日志起点)'} 重读 → ${reread.length} 条`);
-    console.log('  cursor 是共享日志里的位置，所以在哪个进程里读都成立。');
+    console.log('  两个进程同时 read-modify-write 同一个 key，只有 CAS 能保证不丢。');
 
     // -----------------------------------------------------------------------
-    banner('4. 跨不过去的那一半');
+    banner('5. 同一时刻，fan-out 仍然成立');
     // -----------------------------------------------------------------------
 
-    // ConsumerGroup 的认领表在本进程内存里。跨进程时两个成员会各自以为自己
-    // 持有同一个位置，于是同一条消息被两个进程都处理一遍 —— CG-3 被静默违反。
-    // 与其给一个错答案，不如明确拒绝。
-    let refusal: EappError | undefined;
-    try {
-      await runtime.openConsumerGroup(channel.id, { name: 'workers' });
-    } catch (error) {
-      refusal = error instanceof EappError ? error : undefined;
-    }
-    check('跨进程开 ConsumerGroup 被明确拒绝', refusal?.code === 'EAPP_UNSUPPORTED', refusal?.code);
-    console.log(`  openConsumerGroup → ${String(refusal?.code)}`);
-    console.log('  原因：认领表（claim registry）是进程内内存。');
-    console.log('  两个进程会各自以为持有同一个位置 → 每条消息被处理两次，而没有任何报错。');
-    console.log('  规范 §8.3 说"一次 claim 就是一次 Lease"，L-2 因此是 CG-3 的保证 ——');
-    console.log('  但这套实现的 Lease 没有出过进程，所以它保证不了跨进程的 CG-3。');
-    console.log('  这一条现在会**失败**而不是静默降级（TR-4）。');
+    await ownDrain;
+    await ownSubscription.close();
+    console.log(`  本进程以**独立订阅**读了 ${JSON.stringify([...mine].sort((a, b) => a - b))}`);
+    check('独立订阅者看到全部订单', mine.length === orders.length, mine);
+    console.log('  —— 它不在那个组里，所以它看到全部；组里的成员才互相竞争。');
+    console.log('  组之间：每个组收到全部消息；组之内：每条只交给一个成员（§8.1）。');
+
+    // -----------------------------------------------------------------------
+    banner('6. 还需要什么');
+    // -----------------------------------------------------------------------
+
+    console.log('  竞争状态之所以跨得过去，是因为它被搬到了它必须待的地方：');
+    console.log('  broker。§8.3 说"一次 claim 就是一次 Lease"，而 Lease 要有意义，');
+    console.log('  就必须和消息处在同一个所有权域里 —— 数据在哪，"谁持有"就得在哪决定。');
+    console.log('');
+    console.log('  仍然只在单进程内成立的是**请求分发**：runtime.invoke() 的 dispatcher');
+    console.log('  跑在调用方进程里，只能服务本进程注册的插件。跨进程的 request/response');
+    console.log('  需要提供方一侧也跑 dispatcher，而那又需要"每个 Channel 恰好一个服务者"');
+    console.log('  的协调 —— 同一个问题的另一种形态，还没有解决。');
 
     await runtime.shutdown();
   } finally {
@@ -294,12 +319,11 @@ async function main(): Promise<void> {
   }
   console.log(`自检: ${checked} 条断言全部通过`);
   console.log('');
-  console.log('Transport 跨过去了：位置、顺序、CAS、投递保证都还在。');
-  console.log('运行时还剩两处只在单进程内成立 —— 认领表，和请求分发。');
-  console.log('它们现在是明确的失败，不再是安静的错误。');
+  console.log('位置、顺序、CAS、投递保证，以及竞争所有权 —— 都跨过去了。');
+  console.log('剩下的只有请求分发。');
 }
 
-main().catch(async (error: unknown) => {
+main().catch((error: unknown) => {
   console.error('\n\x1b[31mcross-process 失败\x1b[0m');
   console.error(error);
   process.exitCode = 1;

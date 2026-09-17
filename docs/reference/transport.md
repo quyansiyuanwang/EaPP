@@ -18,6 +18,24 @@
 | `@eapp/transport-memory` | 一个进程 | `'process'` | 它自己 |
 | `@eapp/transport-socket` | 一台机器的所有进程 | `'machine'` | broker 进程（独占） |
 
+### 可选扩展：共享的竞争状态
+
+`Transport` 接口是冻结的，不含这一项。但一个消息跨出了进程的 Transport，
+如果不把 [`ConsumerGroup`](./consumer-group.md) 的竞争状态也跨出去，
+CG-3 就会**静默失效** —— 两个进程各自以为持有同一个位置，每条消息被处理两次。
+所以有这么一组可选的成员：
+
+```typescript
+readonly sharesGroupState: boolean;
+groupStore(context: {
+  channel: string; name: string; claimTtlMs: number; initialCursor: Cursor;
+}): GroupStore;
+```
+
+Interaction Layer 在存在时使用它；`durabilityBoundary` 比 `'process'` 宽、
+而这组成员缺失时，`openConsumerGroup()` 抛 `EAPP_UNSUPPORTED`
+（TR-4：宁可明确失败，不静默降级）。规则是"谁拥有什么"只能在数据所在的一侧决定。
+
 ---
 
 ## 签名

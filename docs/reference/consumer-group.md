@@ -18,6 +18,7 @@
 interface ConsumerGroupOptions {
   name: string;          // MUST 在同一 Channel 内唯一（CG-1）
   claimTtlMs?: number;   // 一次 claim 可以持有多久；默认 30_000，MUST > 0
+  prefetch?: number;     // 一次 pull 最多领走多少；默认 16
 }
 
 interface ConsumerGroup<T> {
@@ -32,6 +33,7 @@ interface ConsumerGroup<T> {
 
 interface ConsumerGroupDeps {
   now?: () => number;           // 注入时钟，使 claim 过期可确定性测试
+  store?: (context: GroupStoreContext) => GroupStore;   // 竞争状态放在哪
 }
 
 class ConsumerGroupImpl<T> implements ConsumerGroup<T> {
@@ -66,6 +68,7 @@ interface InteractionLayer {
 |---|---|---|---|
 | `name` | `string` | 是 | 组名；在同一 Channel 内唯一（CG-1），`MUST NOT` 为空 |
 | `claimTtlMs` | `number` | 否 | 一次 claim 的持有上限；超时后位置归还给组（CG-6）。默认 `30_000` |
+| `prefetch` | `number` | 否 | 一次 `pull` 最多领走多少个位置。默认 `16` |
 | `id` | `string` | 是 | 组标识（实现分配） |
 | `channel` | `string` | 是 | 所属 Channel；组 `MUST NOT` 独立于它存在（CG-7） |
 | `cursor` | `Cursor` | 是 | 组共享位置，等于组内已 ack 位置的最大值（CG-2 / §8.3） |
@@ -76,6 +79,11 @@ interface InteractionLayer {
 `join()` 是本实现给出的方法；规范 §8.2 冻结的 `ConsumerGroup` 不含它 ——
 规范的加入路径是通过既有的 `SubscriptionOptions` 表达成员身份（`{ mode: 'group', group }`），
 不引入新的订阅类型。
+
+**`prefetch` 是唯一对抗垄断的旋钮，跨进程时尤其重要。** CG-3 保证排他，不保证公平：
+最先醒来的成员会把当时可见的工作整批领走，其余成员只能等它做完。
+默认 16 偏向单进程吞吐；一个跨进程的工作池通常要调小 ——
+`examples/cross-process/` 用 `1`，于是两个 worker 进程各拿一半。
 
 ---
 
@@ -119,6 +127,25 @@ Lease，因此 §5 的 L-2 —— "同一 cursor 在任意时刻 `MUST NOT` 被�
 
 **每个组起点独立。** `openConsumerGroup()` 以一个已解析的位置开始（创建时取 Channel 头），
 组与组之间不共享游标（CG-4）；组里的成员不持有自己的位置，它的 `cursor` 读的就是组的（CG-2）。
+
+**竞争状态住在 `GroupStore` 里，不在这里。** 组真正共享的东西只有两样 ——
+组游标和认领表 —— 它们被提取成一个可注入的 store：
+
+```
+LocalGroupStore     进程内内存。默认实现，也是 CG-1…CG-8 的参考语义
+RemoteGroupStore    @eapp/transport-socket 提供，状态在 broker 上
+```
+
+这个接缝决定了一个组能有多宽。认领表在进程内内存里时，两个进程会各自以为持有同一个
+位置 —— 每条消息被处理两次，而没有任何报错。所以 Interaction Layer 会问：
+Transport 的 `durabilityBoundary` 比进程宽时，它必须也提供共享的组状态
+（`sharesGroupState` + `groupStore()`），否则 `openConsumerGroup()` 直接抛
+`EAPP_UNSUPPORTED`。宁可明确失败，不给安静的错答案。
+
+**一个接口后果。** §8.2 把 `cursor` 和 `memberCount` 冻结成**同步属性**，
+所以一个共享的组只能报告它最后一次看到的值 —— 每次交互都会刷新，
+但"读到的就是此刻的全局值"是 §8.2 承诺不了的。被保证的是"组只有一个位置"，
+不是"每次读它都是最新的"。
 
 **合规等级**：§15 把 ConsumerGroup 单列为 **I7 ConsumerGroup（SHOULD）** ——
 命名竞争消费作用域。

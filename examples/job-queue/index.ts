@@ -487,9 +487,10 @@ async function main(): Promise<void> {
   console.log('没有一个插件知道自己被谁消费，也没有一个知道谁在和自己竞争。');
   console.log('');
   console.log('关于公平：CG-3 只保证"同一条消息不会同时被同组的两个成员持有"，');
-  console.log('不保证分配均匀。一次 pull 最多领走一批（实现里是 16），所以一个成员');
-  console.log('可能把当前可见的工作整批揽下。要均匀，得让每个成员自己限制领多少 ——');
-  console.log('组是作用域，不是调度器。');
+  console.log('不保证分配均匀。一次 pull 最多领走一批，所以一个成员可能把当前可见的工作');
+  console.log('整批揽下 —— 上面 alpha 拿了 7 条、beta 只拿到 2 条就是这个原因。');
+  console.log('要均匀，用 openConsumerGroup 的 prefetch 把每个成员的批大小压下来：');
+  console.log('组是作用域，不是调度器，prefetch 是唯一对抗垄断的旋钮。');
 }
 
 main().catch((error: unknown) => {
