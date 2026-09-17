@@ -9,6 +9,7 @@
 | [写一个插件](./write-a-plugin.md) | 概念 | 写出一个能被发现、连接、激活、调用的插件 |
 | [实现一个 Transport](./write-a-transport.md) | 概念（§2 与 §7） | 使 EaPP 运行于任意消息系统之上 |
 | [用另一种语言实现 EaPP](./implement-in-another-language.md) | 无 | 知道必须实现什么、可以跳过什么 |
+| [写一个 Extension](./write-an-extension.md) | 概念、写一个插件 | 知道协议之外的语义如何用既有机制表达 |
 
 ## 参考页 vs 指南
 

@@ -2,16 +2,19 @@
 
 | | |
 |---|---|
-| **状态** | Draft |
+| **状态** | **Rejected** —— 问题成立，但不由本提案解决。见 §7 的替代路径 |
 | **§18.1 归类** | `3.x.0`（新增 Extension 章节，§18.1 明确允许） |
-| **协议版本影响** | 次版本：`3.3.0` → `3.4.0` |
-| **评审** | 待评审 |
+| **协议版本影响** | 无。提案被否决，协议版本不变 |
+| **评审** | 两轮，均针对 Composition Core。该层有两份实现，故取得两份独立评审 |
 | **作者** | EaPP 维护者 |
 | **日期** | 见提交记录 |
 
+**本文件保留而不删除。** 提案被否决的理由，比提案本身更有用 ——
+它记录了这类问题**不可以**怎样解决，从而避免同一个提案被反复提出。
+
 ---
 
-## 1. 问题
+## 1. 问题（成立）
 
 规范有十处把内容指派给 Extension，而 **Extension 从未被定义**。
 
@@ -24,157 +27,141 @@
 | v3.2 §12.4 | CRDT 的冲突合并策略属于 Extension |
 | v3.2 §17 | 无查询语言 / 无多 key 事务 / Snapshot 非 linearizable → Extension |
 
-读者按规范实现时会到达"那属于 Extension"，然后无处可去。更严重的是，
-**规范自己指出了缺口**：v3.0 §4.1 承认"需要一个语义协商机制"，并把它推给一个未定义的东西。
-
-### 缺口是可以给出反例的
-
-两个都自称合规的实现，会在一处 Extension 上安静地分道扬镳：
-
-```
-实现 A：支持 conflictPolicy = 'last-write-wins'，按 Extension 定义实现
-实现 B：只实现 Core 的 CAS
-
-A 配置一个 'last-write-wins' 的 Channel，B 收到后：
-  ① 静默当作 CAS 处理  →  B 认为合规，A 认为冲突策略被遵守，而它没有
-  ② 静默忽略该配置      →  同上，且没有任何一方能发现
-  ③ 返回错误            →  这是唯一正确的行为，但规范没有要求它
-```
-
-②是默认结局：Core 里没有"这个策略我不认识"的表达方式，因为 Extension 没有身份。
-这不是边界情况 —— `CF-3` 把"除 CAS 外的全部策略"都放进了 Extension，
-而 §12.4 的能力矩阵里 CRDT 一行正是这种情形。
-
-### 更根本的一处
-
-v3.0 §4.1 说更丰富的 `Constraint` 匹配属于 Extension。若 A 用范围匹配筛选、
-B 用精确匹配，`find()` 在 B 上**静默返回空集** —— 与"没有插件匹配"无法区分。
-这正是勘误 E-I 在 Core 内修掉的同一类问题（"匹配"含义未定），
-只是在 Extension 上它重演一次，且这次连规定都没有。
+**两位评审都确认问题成立。** 其中 `CF-3` 是确凿的一条：它是一条 MUST，
+要求除 CAS 外的策略"定义在 Extension 中"，而无处可定义。
 
 ---
 
-## 2. 提案
+## 2. 原提案（已被否决）
 
-新增一节 **§21 Extension**，措辞如下：
-
-```text
-X-1  An Extension MUST be identified by an (id, version) pair:
-     `id` a namespaced string, `version` a SemVer. The pair MUST be globally unique.
-     The `id` MUST be the name under which the Extension's specification is published.
-
-X-2  An Extension MUST be exposed as a Capability (§5). An Extension MUST NOT add
-     primitives to Core types, change the semantics of Core operations, or introduce
-     new Core error codes.
-
-X-3  An Extension MUST NOT contradict, weaken, or redefine any Core invariant, error
-     code, or type. Where an Extension and Core disagree, Core governs.
-
-X-4  Support for an Extension MUST be discoverable before use: the Extension MUST be
-     exposed as a Capability whose name is `id` and whose version is `version`, so that
-     §8 Discovery and §9 Composition negotiate it with no new machinery.
-
-X-5  Using an Extension that the peer does not expose MUST fail explicitly.
-     An implementation MUST NOT fall back to a Core behaviour as if the Extension
-     had been honoured.
-
-X-6  An Extension MUST have a normative specification stating its `id`, `version`,
-     and semantics. An implementation claiming an Extension MUST cite that document.
-```
-
-### 设计要点
-
-**没有新原语。** `X-2` 与 `X-4` 把 Extension 表达为既有的 `Capability`。
-这不是回避，而是 §5 与 §8 已经具备的能力：能力有名、有版本、可被筛选、可被绑定。
-Extension 需要的语义协商机制，Core 里已经有了 —— 缺的只是"Extension 必须走这条路"的规定。
-
-**`X-5` 是这条提案里唯一有分量的约束。** 它禁止静默降级。这与 TR-9
-（不支持的特性必须显式失败）是同一条原则，但方向相反：TR-9 管的是**底层**不具备能力，
-`X-5` 管的是**对端**不具备能力。两者都拒绝"给一个安静的错答案"。
-
-**`X-3` 使 Core 保持权威。** Extension 可以加东西，不能改东西。
-没有这一条，Extension 就成了"绕过不变量"的后门。
+提出六条规则 `X-1` … `X-6`：Extension 由 `(id, version)` 标识、以 Capability 暴露、
+不得与 Core 冲突、其支持性必须可被发现、对端不支持时必须显式失败、必须有规范文档。
 
 ---
 
-## 3. 为什么不维持现状
+## 3. 评审结论
 
-不采纳时，"属于 Extension" 是一句无处兑现的话，且有两类具体后果：
+两位评审独立得出同一结论：**六条规则中，五条是既有冻结文本的重述或无法执行，
+第六条因无对象而无法测试。**
 
-1. **`CF-3` 不可实现。** 它 MUST 要求除 CAS 外的策略定义在 Extension 中，
-   而 Extension 没有身份 —— 于是这条 MUST 既无法被满足，也无法被检查。
-2. **反例中的 ①② 是安静的。** 项目已经反复确认：**漏掉任何一条，错误都是安静的。**
-   Extension 的缺失恰好落在这一类上。
-
-而 §18.1 已经把"新增 Extension 章节"列为 `3.x.0` 允许的变更 ——
-规范预留了这个位置，只是一直空着。
-
----
-
-## 4. 对既有实现的影响
-
-| 实现 | 会变成不合规吗 | 需要改什么 |
+| 规则 | 评审结论 | 依据 |
 |---|---|---|
-| `packages/`（TypeScript 参考实现） | 否 | 未实现任何 Extension，`X-1`…`X-4`、`X-6` 因而无对象。`X-5` 已满足：`state-channel.ts:234` 对任何非 `'cas'` 的 `conflictPolicy` 抛 `EAPP_UNSUPPORTED`，`StateChannelConfig.conflictPolicy` 的类型也只允许 `'cas'` |
-| `implementations/go/` | 否 | 同上。Go 实现仅覆盖 Composition Core，不触及 `conflictPolicy` |
+| `X-1` | 编号仓库级撞号；"命名空间字符串"与冻结文本冲突；"全局唯一"无法执行 | 见下 |
+| `X-2` | **重述**。§0「MUST NOT 修改 CapabilityRef 语义」与 §18.2「全部不变量 MUST NOT 变更」已禁止之 | §0 / §18.2 |
+| `X-3` | 元规则，无实现对象 | — |
+| `X-4` | **两份实现都已具备**：按 name + version range 协商的机制早已存在 | `capability.ts:25`、`discovery.ts:127-141`、`capability.go:78`、`discovery.go:174` |
+| `X-5` | **重述 TR-9**（"不支持时 MUST 返回 `EAPP_UNSUPPORTED`"），且被引为"已满足"的那处是实现内的局部类型检查，不是对端协商 | v3.1 §10.4 TR-9 |
+| `X-6` | **无法满足**。§19.3 的 `ConformanceClaim` 是冻结的，没有可承载 Extension 的字段 | §19.3 |
 
-**`X-5` 不需要实现改动。** 提案起草时曾怀疑参考实现对未知策略静默按 CAS 处理；
-核实后不是 —— 它在类型与运行时两处都拒绝。这条不变量因此**当前就已成立**，
-本提案做的是把已有的正确行为写成规范，而不是要求一次修改。
+### 3.1 编号撞号
 
-这是提案的常见形态：实现先做对了，规范还没有说它必须做对。
-E-I（`Constraint` 匹配）与 E-H（已被删除的 Cursor）都属于这一类。
+`X-1` 已是本项目对**跨文档冲突**的编号（`X-1…X-12`），见
+[`docs/spec/CHANGELOG.md`](../docs/spec/CHANGELOG.md)。新增一族同名不变量会在仓库内
+产生歧义标识符。**这是本提案自身的错误，评审发现后未进入任何规范文本。**
+
+### 3.2 与冻结文本冲突
+
+`X-1` 要求 `id` 是"命名空间字符串"，而 v3.0 §1.2、§20.2 与附录 B 均声明
+**`namespace` 语义从 Core 移除**。重新引入它是一个**核心概念**变更，
+按 §18.2 属于 `4.0.0`，不是一次 `3.x.0` 扩展。而且它无法执行：
+`assertValidCapability` 只检查 name 非空（C-1）。
+
+### 3.3 §19.2 与闸门
+
+`X-3` 与 `X-6` 被声明为不变量，而提案自己的 §5 承认它们"不可测"。
+§19.2 要求每条不变量至少一个测试，而闸门**只看测试名里是否出现该 ID** ——
+于是一条只有名字没有断言的测试就能造出**绿色的假象**。这是评审提出的最尖锐的一条：
+提案若按原样落地，会用一个空测试换一条不可执行的不变量。
+
+### 3.4 一处需要纠正的先例
+
+提案曾以 `BR-1` / `BR-2` 为"不可外部观察但可以不声明"的先例。**该前提是错的**：
+`BR-1` 与 `BR-2` 就声明在 v3.0 §13 里，并且有测试
+（`core.test.ts:696,713`）。正确的先例是：**照常声明，能测的测，
+驱动侧明说它"通过本协议不可观察"**（`main.go:537`）。
 
 ---
 
-## 5. 一致性
+## 4. 为什么否决而不是修改
 
-| 不变量 | 规则 | 测试 |
+`CH-1`（"Composition Core MUST NOT define Channel interaction semantics"）
+证明**否定性的结构规则在本项目里是可测的** —— 它断言 `Binding` 上不存在
+`mode` / `delivery` / `channel` 等成员。所以"结构规则无法测试"不是否决理由。
+
+真正的否决理由是**没有对象**：
+
+```
+EX-* 要断言的"Extension"      在 packages/ 与 implementations/go/ 中都不存在
+```
+
+所以任何 `EX-*` 测试都会是空转的断言 —— 形式上通过，实际上什么也没检验，
+正是 §3.3 描述的那种绿色假象。
+
+**只留一条**也救不回来：删掉五条重述后剩下的唯一实质规则是
+"超出 Core 的能力必须以 Capability 形式暴露，以便被协商"。
+它是真的，但（一）两份实现本来就只通过 Capability 暴露能力，因此**恒真**；
+（二）要为它写一个非空转的测试，必须先让实现拥有 Extension 概念 ——
+而那是一个实现设计，不是一条规则。
+
+**为一条无法证伪的规则做一次 `3.x.0` 变更，不是规范该做的事。**
+
+---
+
+## 5. 评审意见中未采纳的部分
+
+| 意见 | 提出者 | 不采纳的理由 |
 |---|---|---|
-| `X-1` | Extension 由 `(id, version)` 标识 | `core.test.ts`，校验非法 id（非命名空间、空版本）被拒绝 |
-| `X-2` | Extension 以 Capability 暴露，不新增 Core 原语 | `core.test.ts`，断言 Extension 不引入任何 Core 类型成员 |
-| `X-3` | 与 Core 冲突时以 Core 为准 | 结构性。与 `B-8`（唯一性检查与创建必须原子）同类，可能不可外部观察 |
-| `X-4` | 支持性必须可被发现 | `core.test.ts`，`find({capability: id, version: range})` 能定位支持方 |
-| `X-5` | 对端不支持时显式失败 | `interaction.test.ts`，未知 `conflictPolicy` 抛码而非静默按 CAS 处理 |
-| `X-6` | Extension 必须有规范文档 | 不可测。这是一条对**规范作者**的约束，不是对实现的 |
-
-`X-6` 与 `X-3` 属于"不可外部观察"的一类。`conformance/README.md` 已登记了
-同类情形（`B-8`），本提案沿用相同的处理方式：说明它为什么不可观察，而不是假装覆盖了。
+| 保留 `X-5`，仅改写措辞以区别于 TR-9 | 评审 B | 评审 A 指出改写后仍与 TR-3（"Transport MUST NOT 伪装支持"）同义，只是把作用域从 Transport 推广到任意实现。两位评审都识别出它是重述，且都未能给出一个它**独有裁决**的情形。 |
+| 保留 `X-2`，用结构断言测试 | 评审 B | `CH-1` 式的结构断言成立的前提是被断言的对象存在；Extension 不存在，断言即空转。 |
+| 为 `EAPP_UNSUPPORTED` 规定 `details` 以指出缺失的 Extension | 评审 A | 方向正确，但它是**错误模型**的变更（v3.0 §16），与 Extension 的身份问题正交。应作为独立提案提出，而不是夹带在本提案里。 |
 
 ---
 
-## 6. 被否决的替代方案
+## 6. 本提案被否决**不**意味着什么
 
-**① 在 Core 里直接扩展 `conflictPolicy` 联合。**
-否决：§10.5 与 `CF-3` 明确要求这些策略 MUST NOT 出现在 Core 里。
-把 `'last-write-wins'` 加进 Core 的联合类型，等于让每个实现都必须理解它 ——
-与"Core 最小"这一整个分层前提冲突。
-
-**② 用 `Criteria.constraints` 承载 Extension 的身份。**
-否决：`Constraint` 是 `{ kind, value }`，没有版本。Extension 必然需要版本 ——
-`X-1` 的核心就是"没有版本的扩展身份无法协商"。用 `constraints` 表达，
-两个实现会在同一个 id 的不同版本上彼此以为对方理解自己。
-
-**③ 给 `ConformanceClaim` 增加 `extensions` 字段。**
-否决（本提案范围内）：§19.3 的接口是冻结的，增加字段属于 `4.0.0`。
-而且不必 —— Extension 的支持已经由 `X-4` 通过 Capability 表达，
-声明接口属于协议，Extension 在协议之外。见 §7。
-
-**④ 只写一份非规范指南，不改规范。**
-否决：`CF-3` 已经是一条 MUST，它引用了 Extension。指南无法使那条 MUST 可满足。
+- 不意味着 `CF-3` 可以被忽略 —— 它是确凿的缺陷，见 §7。
+- 不意味着 Extension 这个概念不该被写下来 —— 它该被写下来，只是不该由本提案以新规则的形式写。
+- 不意味着评审流程过严。**一次否决挡下了六条无法执行的规则进入冻结文本，
+  这正是流程存在的意义。**
 
 ---
 
-## 7. 未解决的问题
+## 7. 替代路径
 
-1. **`id` 的命名空间形式未定。** `X-1` 只要求"命名空间字符串"。
-   是否强制反向域名、是否允许分层，需要先有真实 Extension 才能判断 ——
-   现在定死会产生一条无法验证的格式规则。
+问题由两条更小的路径解决，都不改变协议语义。
 
-2. **不可观察的不变量如何计入合规。** `X-3` 与 `X-6` 无法由外部 harness 检查。
-   `conformance/README.md` 目前把这类条目标记为"未覆盖并注明原因"，
-   但没有说明它们是否计入 `passed` / `total`。这与 `B-8` 是同一个悬而未决的问题。
+### 7.1 勘误：`CF-3` 如何兑现
 
-3. **Extension 之间的一致性无人裁决。** 本提案规定 Extension 与 Core 的关系，
-   没有规定两个 Extension 互相冲突时怎么办。当前答案是"没有机制"，
-   而这可能是正确的 —— 但应当写下来。
+`CF-3` 与冻结的 `conflictPolicy: 'cas'` 之间存在缝隙，评审双方都指出了它：
+
+```
+StateChannelConfig.conflictPolicy  是冻结的字面量 'cas'
+CF-3                               要求非 CAS 策略"定义在 Extension 中"
+
+于是非 CAS 策略无法经由该字段被选中
+```
+
+**答案：`CF-3` 不要求 `StateChannel` 支持别的策略，而是要求别的策略由 Extension
+提供自己的路径。** `StateChannel` 保持只支持 CAS 这一事实不变。
+这是冻结字面量唯一允许的读法 —— 放宽该字段是一个 `4.0.0` 变更（§18.2）。
+
+这属于**澄清**（§18.4），不新增规则，协议版本不变。记为勘误 **E-M**。
+
+### 7.2 指南：Extension 是什么
+
+十处"属于 Extension"的引用需要的不是新法律，而是一份说明：
+**Extension 用既有的 Capability / Discovery / Binding 机制表达，
+本协议不为它增设原语。**
+
+写入非规范性文档 [`docs/guides/write-an-extension.md`](../docs/guides/write-an-extension.md)。
+
+---
+
+## 8. 评审记录
+
+| 评审者 | 维护的实现 | 结论 |
+|---|---|---|
+| A | `implementations/go/`（Composition Core） | Reject as written; accept with changes |
+| B | `packages/`（TypeScript 参考实现） | Accept with changes |
+
+两位评审均**未编辑任何文件**。两份意见的实质内容见 §3 与 §5。

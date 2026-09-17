@@ -17,6 +17,7 @@
     "check:invariants": "node tools/check-invariants.mjs",
     "check:docs": "node tools/check-docs.mjs",
     "check:duplicates": "node tools/check-duplicates.mjs",
+    "check:counts": "node tools/check-counts.mjs",
     "conformance:external": "node conformance/harness/run.mjs",
     "conformance:list": "node conformance/harness/run.mjs --list",
     "demo": "tsx examples/hello-plugins/index.ts",
@@ -25,7 +26,7 @@
     "example:transport": "tsx examples/array-transport/index.ts",
     "example:cross-process": "tsx examples/cross-process/index.ts",
     "examples": "pnpm run demo && pnpm run example:first && pnpm run example:queue && pnpm run example:transport && pnpm run example:cross-process",
-    "verify": "pnpm run typecheck && pnpm run test && pnpm run examples && pnpm run check:invariants && pnpm run check:docs && pnpm run check:duplicates && pnpm run conformance:external"
+    "verify": "pnpm run typecheck && pnpm run test && pnpm run examples && pnpm run check:invariants && pnpm run check:docs && pnpm run check:duplicates && pnpm run check:counts && pnpm run conformance:external"
   },
   "devDependencies": {
     "@types/node": "^22.20.3",

@@ -180,8 +180,8 @@ docs/analysis/DECISIONS-*.md    每条规则为什么是这样（非规范性）
 任何实现都可以自称实现 EaPP。本仓库里有两份实现，各自声明自己的覆盖：
 
 ```json
-{ "eappVersion": "3.2.0", "levels": ["C1", "…", "I6", "I7"],
-  "testSuite": "conformance@3.2.0-r3", "passed": 209, "total": 209 }
+{ "eappVersion": "3.3.0", "levels": ["C1", "…", "I6", "I7"],
+  "testSuite": "conformance@3.3.0", "passed": 210, "total": 210 }
 ```
 
 `levels` 里**只允许列规范真正定义过的等级** —— v3.0 §15 定义 `C1`–`C8`，

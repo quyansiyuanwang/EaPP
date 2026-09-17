@@ -20,6 +20,7 @@
 | 写一个插件 | [指南：写一个插件](./guides/write-a-plugin.md) |
 | 换一种传输 | [指南：实现一个 Transport](./guides/write-a-transport.md) |
 | 用别的语言实现这个协议 | [指南：用另一种语言实现 EaPP](./guides/implement-in-another-language.md) · [一致性 harness](../conformance/README.md) |
+| 表达协议之外的语义 | [指南：写一个 Extension](./guides/write-an-extension.md) |
 | 查某个实体的确切语义 | [参考](#参考) |
 | 读冻结的规范正文 | [规范](#规范) |
 | 知道当前实现到什么程度 | [一致性报告](./CONFORMANCE.md) |
@@ -108,7 +109,7 @@ pnpm run check:invariants
 | 层 | 不变量 | 覆盖 |
 |---|---|---|
 | v3.0.0-core | 51 | **51 / 51** |
-| v3.1.0-interaction | 74 | **74 / 74** |
+| v3.1.0-interaction | 75 | **75 / 75** |
 | v3.2.0-state | 84 | **84 / 84** |
 
 完整声明、合规等级与已登记的偏离见 [一致性报告](./CONFORMANCE.md)。
