@@ -68,6 +68,13 @@ async function twoPlugins() {
   return { runtime, logger, app };
 }
 
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline && !predicate()) await sleep(5);
+}
+
 describe('runtime: discover', () => {
   test('a registered plugin becomes discoverable but is not yet composed', async () => {
     const { runtime, logger } = await twoPlugins();
@@ -517,11 +524,201 @@ describe('runtime: composition lifecycle', () => {
   });
 });
 
+describe('runtime: consumer groups', () => {
+  /**
+   * The facade had no way to open a ConsumerGroup at all, while `write-a-plugin.md` §8
+   * told plugin authors that exclusivity between consumers "由 ConsumerGroup + Lease 表达".
+   * A documented expression path the public API cannot express is a facade defect, not an
+   * invitation to reach past it and hand-build a SubscriptionSource. These pin the path.
+   */
+  test('two plugins compete for one Channel through the runtime', async () => {
+    const { runtime, logger, app } = await twoPlugins();
+    const { channel } = await runtime.connect({
+      from: logger,
+      to: app,
+      capability: LOGGING,
+      mode: 'stream',
+    });
+    await runtime.activate(logger);
+    await runtime.activate(app);
+
+    const group = await runtime.openConsumerGroup(channel.id, { name: 'workers' });
+    const a = await runtime.joinConsumerGroup(channel.id, 'workers');
+    const b = await runtime.joinConsumerGroup(channel.id, 'workers');
+    expect(group.memberCount).toBe(2);
+
+    const iteratorA = a[Symbol.asyncIterator]();
+    await runtime.publish({ from: logger, to: app, capability: LOGGING, mode: 'stream' }, { n: 1 });
+    const held = (await iteratorA.next()).value;
+    expect(held?.payload).toEqual({ n: 1 });
+
+    // CG-3: the position A holds is not handed to B as well.
+    const seen: unknown[] = [];
+    void (async () => {
+      for await (const message of b) {
+        seen.push(message.payload);
+        await message.ack();
+      }
+    })();
+    await sleep(60);
+    expect(seen).toHaveLength(0);
+
+    // CG-6: a nack returns it to the group, and only then does B get it.
+    await held?.nack();
+    await waitFor(() => seen.length >= 1);
+    expect(seen).toEqual([{ n: 1 }]);
+
+    // CG-2: one position for the whole group; no member owns its own.
+    expect(a.cursor).toBe(b.cursor);
+    expect(b.cursor).toBe(group.cursor);
+
+    await a.close();
+    await b.close();
+    await runtime.shutdown();
+  });
+
+  test('CG-8: joining must name an existing group on the same Channel', async () => {
+    const { runtime, logger, app } = await twoPlugins();
+    const { channel } = await runtime.connect({
+      from: logger,
+      to: app,
+      capability: LOGGING,
+      mode: 'stream',
+    });
+    await expect(runtime.joinConsumerGroup(channel.id, 'nobody')).rejects.toThrow(
+      'EAPP_SUBSCRIPTION_INVALID',
+    );
+    await runtime.shutdown();
+  });
+
+  test('a group cannot be opened on a DRAINING Channel', async () => {
+    const { runtime, logger, app } = await twoPlugins();
+    const { channel } = await runtime.connect({
+      from: logger,
+      to: app,
+      capability: LOGGING,
+      mode: 'stream',
+    });
+    await runtime.activate(logger);
+    await runtime.activate(app);
+    await runtime.suspend(logger);
+    expect(channel.state).toBe('DRAINING');
+
+    // A group is a consumer, so DRAINING — "no new work" — has to refuse it.
+    await expect(runtime.openConsumerGroup(channel.id, { name: 'workers' })).rejects.toThrow(
+      'EAPP_CHANNEL_DRAINING',
+    );
+    await runtime.shutdown();
+  });
+
+  test('CG-1: a group name is unique within its Channel', async () => {
+    const { runtime, logger, app } = await twoPlugins();
+    const { channel } = await runtime.connect({
+      from: logger,
+      to: app,
+      capability: LOGGING,
+      mode: 'stream',
+    });
+    await runtime.openConsumerGroup(channel.id, { name: 'workers' });
+    await expect(runtime.openConsumerGroup(channel.id, { name: 'workers' })).rejects.toThrow(
+      'EAPP_SUBSCRIPTION_INVALID',
+    );
+    expect(runtime.consumerGroup(channel.id, 'workers')?.name).toBe('workers');
+    expect(runtime.listConsumerGroups(channel.id)).toHaveLength(1);
+    await runtime.shutdown();
+  });
+});
+
+describe('runtime: subscription anchors', () => {
+  /**
+   * `'earliest'` used to be hardcoded to the empty sentinel rather than asked of the
+   * transport. On a retained log that named a position which no longer exists, so the
+   * cursor a subscriber was handed did not identify anything readable.
+   */
+  test("'earliest' resolves to the transport's retention floor", async () => {
+    const transport = new MemoryTransport('retained', { retention: { kind: 'window', entries: 2 } });
+    const runtime = EappRuntime.create({ domain: 'eapp.demo', transport });
+    const logger = runtime.register(loggerPlugin());
+    const app = runtime.register(appPlugin());
+    const { channel } = await runtime.connect({
+      from: logger,
+      to: app,
+      capability: LOGGING,
+      mode: 'stream',
+    });
+    await runtime.activate(logger);
+    await runtime.activate(app);
+
+    for (const n of [1, 2, 3, 4]) {
+      await runtime.publish({ from: logger, to: app, capability: LOGGING, mode: 'stream' }, { n });
+    }
+
+    const subscription = await runtime.subscribe(channel.id, { all: true }, { cursor: 'earliest' });
+    // Two entries are retained, so four writes leave the floor at position 2.
+    expect(subscription.cursor).toBe('retained!0000000000000002');
+
+    const received: unknown[] = [];
+    void (async () => {
+      for await (const message of subscription) {
+        received.push(message.payload);
+        await message.ack();
+      }
+    })();
+    await waitFor(() => received.length >= 2);
+    expect(received).toEqual([{ n: 3 }, { n: 4 }]);
+
+    await subscription.close();
+    await runtime.shutdown();
+  });
+});
+
 describe('runtime: shutdown', () => {
   test('operations after shutdown fail cleanly', async () => {
     const { runtime } = await twoPlugins();
     await runtime.shutdown();
     await expect(runtime.discover({})).rejects.toThrow('EAPP_INTERNAL');
     expect(() => runtime.register(loggerPlugin())).toThrow('EAPP_INTERNAL');
+  });
+
+  /**
+   * The assertion here is that this test finishes at all.
+   *
+   * `shutdown()` aborts the dispatcher and closes the transport, but a handler that is
+   * sleeping does not stop just because we stopped listening. When it woke up, its reply
+   * was sent into a closed transport and the resulting error escaped from a detached
+   * background loop as an unhandled rejection — killing the process. Shutting down with
+   * work in flight is ordinary, so it must not be fatal.
+   */
+  test('shutting down while a handler is still running is not fatal', async () => {
+    const runtime = EappRuntime.create({ domain: 'eapp.demo' });
+    let started!: () => void;
+    const began = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+
+    const slow = runtime.register({
+      manifest: {
+        identity: { domain: 'eapp.demo', id: 'slow', instance: 'slow-1' },
+        capabilities: [LOGGING],
+      },
+      handlers: {
+        logging: async () => {
+          started();
+          await sleep(40);
+          return 'too late to matter';
+        },
+      },
+    });
+    const app = runtime.register(appPlugin());
+    await runtime.activate(slow);
+    await runtime.activate(app);
+
+    const call = runtime.invoke({ from: app, to: slow, capability: LOGGING, timeoutMs: 5 });
+    await began;
+    await expect(call).rejects.toThrow('EAPP_TIMEOUT');
+
+    // The handler is still running right now. Tear everything down underneath it.
+    await runtime.shutdown();
+    await sleep(80); // long enough for it to finish and try to reply
   });
 });
