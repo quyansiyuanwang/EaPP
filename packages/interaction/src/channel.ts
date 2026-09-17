@@ -1,0 +1,109 @@
+import { EappError } from '@eapp/core';
+
+/**
+ * Channel — EaPP v3.1.0 §2.
+ *
+ * A ChannelRef is the only part the Composition Core may see (§2.2). Everything else
+ * (mode / delivery / state) belongs to this layer and MUST NOT leak downwards.
+ *
+ * Note that v3.1 §2.1 already lists `'state'` as a ChannelMode. No later layer extends
+ * this union; errata E1-2 exists because a draft claimed otherwise.
+ */
+
+export type ChannelMode = 'request' | 'event' | 'stream' | 'state';
+
+export type DeliveryGuarantee = 'at-most-once' | 'at-least-once';
+
+export type ChannelState = 'OPEN' | 'ACTIVE' | 'DRAINING' | 'CLOSED';
+
+export interface ChannelRef {
+  id: string;
+  binding: string;
+}
+
+export interface Channel extends ChannelRef {
+  mode: ChannelMode;
+  delivery: DeliveryGuarantee;
+  state: ChannelState;
+}
+
+/**
+ * A Channel together with the lifecycle operations of §2.4. The bare `Channel` interface
+ * stays a pure data view (that is all the Composition Core may see), while anything that
+ * actually owns a channel gets these.
+ */
+export interface ManagedChannel extends Channel {
+  connect(): Promise<void>;
+  drain(): Promise<void>;
+  close(): Promise<void>;
+}
+
+/**
+ * §4.4: `stream` and `state` allow only `at-least-once`; the other modes allow either.
+ * Deliberately NOT tolerant of unknown modes: a typo must fail loudly rather than
+ * silently default to a weaker guarantee.
+ */
+export function defaultDeliveryFor(mode: ChannelMode): DeliveryGuarantee {
+  return mode === 'stream' || mode === 'state' ? 'at-least-once' : 'at-most-once';
+}
+
+export function assertDeliveryAllowed(mode: ChannelMode, delivery: DeliveryGuarantee): void {
+  if ((mode === 'stream' || mode === 'state') && delivery !== 'at-least-once') {
+    throw new EappError(
+      'EAPP_DELIVERY_UNSUPPORTED',
+      `mode '${mode}' requires 'at-least-once', got '${delivery}'`,
+    );
+  }
+}
+
+export class ChannelImpl implements ManagedChannel {
+  readonly id: string;
+  readonly binding: string;
+  readonly mode: ChannelMode;
+  readonly delivery: DeliveryGuarantee;
+  #state: ChannelState = 'OPEN';
+
+  constructor(ref: ChannelRef, mode: ChannelMode, delivery: DeliveryGuarantee) {
+    assertDeliveryAllowed(mode, delivery);
+    this.id = ref.id;
+    this.binding = ref.binding;
+    this.mode = mode;
+    this.delivery = delivery;
+  }
+
+  get state(): ChannelState {
+    return this.#state;
+  }
+
+  /** §2.5: OPEN --connect--> ACTIVE */
+  async connect(): Promise<void> {
+    if (this.#state === 'CLOSED') {
+      throw new EappError('EAPP_CHANNEL_CLOSED', `channel ${this.id} is closed`);
+    }
+    if (this.#state === 'OPEN') this.#state = 'ACTIVE';
+  }
+
+  /** §2.5: ACTIVE --drain--> DRAINING (stop accepting new work, finish in-flight). */
+  async drain(): Promise<void> {
+    if (this.#state === 'CLOSED' || this.#state === 'DRAINING') return;
+    this.#state = 'DRAINING';
+  }
+
+  /** CH-3 / CH-4: CLOSED is terminal and close() is idempotent. */
+  async close(): Promise<void> {
+    this.#state = 'CLOSED';
+  }
+
+  /** Guard for operations that require an ACTIVE channel. */
+  requireActive(operation: string): void {
+    if (this.#state === 'CLOSED') {
+      throw new EappError('EAPP_CHANNEL_CLOSED', `cannot ${operation} on a closed channel`);
+    }
+    if (this.#state !== 'ACTIVE') {
+      throw new EappError(
+        'EAPP_CHANNEL_INVALID',
+        `cannot ${operation} on a channel in state ${this.#state}`,
+      );
+    }
+  }
+}

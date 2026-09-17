@@ -1,0 +1,73 @@
+import { EappError } from '@eapp/core';
+
+/**
+ * AckContext — EaPP v3.1.0 §8.
+ *
+ * The full context carries BOTH `ack()` and `nack()`. A consumer-facing event type that
+ * only exposes `ack()` is not a valid v3.1 AckContext (errata E1-3), which is why the
+ * state layer's `StateUpdateEvent` extends this interface rather than redefining it.
+ *
+ * Two distinct terminal stories are deliberately separated:
+ *
+ *   AK-3 / AK-4 (spec §8)   a context resolved as ACKED may not later be NACKED and
+ *                           vice versa -> EAPP_LEASE_CLOSED.
+ *   SUB-8 / SW-12 (errata)  the owning subscription was closed while this item was still
+ *                           unresolved -> both calls are no-ops and MUST NOT throw, so
+ *                           that a `for await` loop that exits mid-flight does not blow up
+ *                           in its finally block.
+ */
+
+export type AckState = 'PENDING' | 'ACKED' | 'NACKED';
+
+export interface AckContext {
+  ack(): Promise<void>;
+  nack(): Promise<void>;
+}
+
+export interface LocalAckHooks {
+  onAck?: (self: LocalAck) => void;
+  onNack?: (self: LocalAck) => void;
+}
+
+export class LocalAck implements AckContext {
+  #state: AckState = 'PENDING';
+  #closed = false;
+  readonly #hooks: LocalAckHooks;
+
+  constructor(hooks: LocalAckHooks = {}) {
+    this.#hooks = hooks;
+  }
+
+  get state(): AckState {
+    return this.#state;
+  }
+
+  get closed(): boolean {
+    return this.#closed;
+  }
+
+  async ack(): Promise<void> {
+    if (this.#closed) return; // SUB-8 / SW-12
+    if (this.#state === 'ACKED') return; // AK-1 idempotent
+    if (this.#state === 'NACKED') {
+      throw new EappError('EAPP_LEASE_CLOSED', 'ack() after nack() is not allowed'); // AK-4
+    }
+    this.#state = 'ACKED';
+    this.#hooks.onAck?.(this);
+  }
+
+  async nack(): Promise<void> {
+    if (this.#closed) return; // SUB-8 / SW-12
+    if (this.#state === 'NACKED') return; // AK-2 idempotent
+    if (this.#state === 'ACKED') {
+      throw new EappError('EAPP_LEASE_CLOSED', 'nack() after ack() is not allowed'); // AK-3
+    }
+    this.#state = 'NACKED';
+    this.#hooks.onNack?.(this);
+  }
+
+  /** Called by the owning subscription when it closes. Not part of `AckContext`. */
+  close(): void {
+    this.#closed = true;
+  }
+}

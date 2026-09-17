@@ -1,0 +1,144 @@
+# EaPP — 规范版本索引与变更记录
+
+本文件记录三个冻结层的版本、来源与全部修订。
+`docs/spec/` 下的文档是**规范性**的；`tmp/draft/` 下的文档是**历史草案**，只作为溯源保留。
+
+---
+
+## 版本索引
+
+| 版本 | 文档 | 状态 | 来源 |
+|---|---|---|---|
+| **v3.0.0-core** | `docs/spec/v3.0.0-core.md` | FROZEN | `tmp/draft/EaPP v3.0.0 Composition Core.md` 逐字副本，**未作任何修改** |
+| **v3.1.0-interaction** | `docs/spec/v3.1.0-interaction.md` | FROZEN | `tmp/draft/EaPP v3.1.0 Interaction Layer.md`（Draft）+ 9 条勘误（本文 §v3.1.0） |
+| **v3.2.0-state** | `docs/spec/v3.2.0-state.md` | FROZEN | `tmp/draft/EaPP v3.2.0 State Mode — Freeze Candidate r2.md` + r3 修订（本文 §v3.2.0） |
+| — | `docs/spec/DECISIONS-v3.2.0-r3.md` | 决议记录 | Final Review 的全部裁定（D-01…D-38、R-0…R-13） |
+| — | `docs/analysis/GAP-ANALYSIS-v3.2.0-r2.md` | 分析记录 | 40 条内部缺陷（F-01…F-39）+ 12 处跨文档冲突（X-1…X-12） |
+
+> **v3.0 是逐字副本。** 它已自述冻结（§0），本轮**没有改动一个字**；
+> 放在 `docs/spec/` 下只是为了给一致性闸门一个稳定的路径。
+
+---
+
+## v3.2.0-state（r2 → r3）
+
+### 语义内核的四条变更
+
+| # | r2 | r3 | 关闭 |
+|---|---|---|---|
+| C-1 | `Revision` 是 per-cell 版本号，`REV-7` 是"例外" | `Revision` 就是 Channel 内的**日志位置**，与 v3.1 `Cursor` 同域同型 | F-05, X-2, X-3 |
+| C-2 | `delete` = `set({deleted:true})` | `delete` 是 Transport **一等原语** | F-20, F-21, F-27 |
+| C-3 | `maxRevision` 由 cells 归约得出（恒真式） | `maxRevision` = 读取 cells **之前**的 head | F-03, F-29 |
+| C-4 | CRDT 获得 `⚠️` 豁免 | 取消豁免，收紧能力标志 | F-11 |
+
+### 其余修订（按缺陷编号）
+
+| 缺陷 | 修订 |
+|---|---|
+| F-01 | `expectedRevision: null` 只表示"从未存在"，删除参考实现里的 `!current.deleted` 例外 |
+| F-02 | 引入 actor 来源链 `update.actor ?? channel.owner` |
+| F-04 | `StateSnapshot` 增加 `pattern`；`restore` 增加 `mode: 'merge' \| 'replace'` |
+| F-06 | 定义 `WatchOptions`；`CursorAnchor` 字面量优先解析 |
+| F-07 | no-op delete 不分配 revision、不产生变更 |
+| F-08 | 删除边界情况由 3 行表补全为 8 行完整表 |
+| F-09 | `restore` 的每次写入 MUST 追加变更 |
+| F-10 | API-4 改写为"delete 不重置计数器，返回操作后该 key 的当前 revision" |
+| F-12 | 错误码归一：分层联合 + 单一 `EappError` 类 |
+| F-13 | 初始 cursor 在 `watch()` 返回前 eager 解析 |
+| F-14 | 删除 `pending` 结构 |
+| F-15 | 新增可选 `waitForChange`，否则有界轮询 |
+| F-16 | pattern 校验逐字段，拒绝 `{all:false}` / `{key:''}` |
+| F-17 | `value` 存在性按属性存在判定 |
+| F-18 | 测试 MUST NOT 硬编码 revision 字面量 |
+| F-19 | SW-1 的 `expect(w.cursor).toBeDefined()` 因 F-13 而可满足 |
+| F-22 | `EappError` 由 interface 补为 class |
+| F-23 | `get`/`list` MUST 返回已逻辑删除的 cell（SC-6 / API-1 / API-2） |
+| F-24 | IX-1 重写为"不得修改任何既有成员" |
+| F-25 | SU-6 区分"对外无条件写入"与"revision 钉定内部原语" |
+| F-26 | `nextRevision` 单参数 |
+| F-28 | `expectedRevision` 只从 `StateUpdate` 读取 |
+| F-30 | 新增 SUB-5/6/7/8：suspend / close / close 后 ack 的语义 |
+| F-31 | 每个能力标志 MUST 有唯一的运行时后果 |
+| F-32 | 寻址 MUST 用 `(channel, key)` 二元组，禁止字符串拼接（TS-13） |
+| F-33 | Channel 创建路径补齐为三段式（v3.1 §11 + v3.2 §10.1） |
+| F-34 | 测试体 MUST NOT 为空；REV-6 改为标注 `[covered by:]` |
+| F-35 | 错误面完整性 + `retryable` 赋值规则 |
+| F-36 | 投递语义对齐 v3.1 §4.3/§4.4（DL-4 / DL-5） |
+| F-38 | `readChangesAfter` / `getState` / `listState` 的语义补全（TS-9…TS-15） |
+| F-39 | `restoreState` 从 Transport 移除，restore 唯一入口在 Channel 层 |
+
+### 新增不变量
+
+```
+SC-6    get / list MUST include logically-deleted cells.
+SU-9    deleted, when present, MUST be true.
+SW-10   StateWatcher MUST implement the full v3.1 AckContext.
+SW-11   close() MUST be idempotent; no delivery after close().
+SW-12   ack() / nack() after close() MUST be a no-op.
+SNAP-7  restore MUST be the only public path to an unconditional write.
+SNAP-8  restore MUST append a change for every write.
+SNAP-9  restore MUST reject a snapshot from another channel.
+TS-9..TS-15   readChangesAfter / head / nextRevision / addressing semantics.
+IX-6    StateChannel MUST be a narrowing view of Channel.
+```
+
+### 删除的不变量
+
+```
+IX-5    "ChannelMode MAY be extended to include 'state'" —— 谎言：v3.1 §2.1 早已包含 'state'。
+```
+
+---
+
+## v3.1.0-interaction（Draft → FROZEN）
+
+草案自述为 **Draft**（文末「EaPP v3.1.0 Interaction Layer — Draft」），
+而 v3.2 的文档头却称其 "SEMANTIC FROZEN"。冻结链条因此断裂 —— 见 `DECISIONS-v3.2.0-r3.md` R-0。
+
+### 勘误
+
+| # | 修订 |
+|---|---|
+| E1-1 | `StateMessage.revision` 由 `number` 改为 `Revision`（与 `Cursor` 同域） |
+| E1-2 | 删除"v3.2 扩展出第四种 ChannelMode"的表述；`'state'` 是 v3.1 既有成员 |
+| E1-3 | 任何消费端事件类型 MUST 同时提供 `ack()` 与 `nack()` |
+| E1-4 | cursor 推进以草案 §6.4 为准：显式 ack 更靠后的位置允许放弃中间项 |
+| E1-5 | 补齐 `Binding → Channel` 的创建路径（本文 §11） |
+| E1-6 | 新增 `Subscription` / `SubscriptionMode` / `SubscriptionState`（本文 §7） |
+| E1-7 | `durabilityBoundary` 补入 `TransportCapabilities` |
+| E1-8 | 目录布局由 `reference/` 归一为 `packages/`（§19.1 用的是 SHOULD，允许偏离） |
+| E1-9 | 下一版本号由 `v3.2.0 transport-capability` 更正为 `v3.2.0-state` |
+
+### 新增不变量
+
+```
+DL-6     创建 stream / state Channel 时指定 at-most-once MUST 返回 EAPP_DELIVERY_UNSUPPORTED。
+SUB-1..SUB-9   Subscription 语义。
+TR-5..TR-8     Transport 读写语义。
+CC-3..CC-9     Channel 创建路径。
+```
+
+### 新增错误码
+
+```
+EAPP_CURSOR_TOO_OLD        日志已压缩到无法定位请求位置
+EAPP_SUBSCRIPTION_INVALID  Subscription 构造参数非法
+```
+
+### 目录布局映射
+
+| 规范路径（草案 §12.1） | 实现路径 |
+|---|---|
+| `spec/` | `docs/spec/` |
+| `reference/core/*` | `packages/core/src/*` |
+| `reference/interaction/*` | `packages/interaction/src/*` |
+| `reference/interaction/modes/state.ts` | `packages/state/src/*`（独立包，v3.2 的决定） |
+| `reference/transport/memory.ts` | `packages/transport/memory/src/*` |
+| `tests/conformance/*` | `tests/conformance/*` |
+| `examples/*` | `examples/*` |
+
+---
+
+## v3.0.0-core
+
+未改动。§0 自述「本文自发布之日起冻结」，本轮**逐字复制**，未作任何修订。
