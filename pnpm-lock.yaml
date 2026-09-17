@@ -65,6 +65,21 @@ importers:
         specifier: workspace:*
         version: link:../../state
 
+  packages/transport/socket:
+    dependencies:
+      '@eapp/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@eapp/interaction':
+        specifier: workspace:*
+        version: link:../../interaction
+      '@eapp/state':
+        specifier: workspace:*
+        version: link:../../state
+      '@eapp/transport-memory':
+        specifier: workspace:*
+        version: link:../memory
+
 packages:
 
   '@esbuild/aix-ppc64@0.28.2':

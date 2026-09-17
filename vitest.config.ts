@@ -10,6 +10,7 @@ export default defineConfig({
     // before `pnpm test`. Order matters: longer paths first.
     alias: [
       { find: '@eapp/transport-memory', replacement: pkg('./packages/transport/memory/src/index.ts') },
+      { find: '@eapp/transport-socket', replacement: pkg('./packages/transport/socket/src/index.ts') },
       { find: '@eapp/interaction', replacement: pkg('./packages/interaction/src/index.ts') },
       { find: '@eapp/runtime', replacement: pkg('./packages/runtime/src/index.ts') },
       { find: '@eapp/state', replacement: pkg('./packages/state/src/index.ts') },

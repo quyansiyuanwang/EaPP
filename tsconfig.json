@@ -8,6 +8,7 @@
       "@eapp/interaction": ["./packages/interaction/src/index.ts"],
       "@eapp/state": ["./packages/state/src/index.ts"],
       "@eapp/transport-memory": ["./packages/transport/memory/src/index.ts"],
+      "@eapp/transport-socket": ["./packages/transport/socket/src/index.ts"],
       "@eapp/runtime": ["./packages/runtime/src/index.ts"]
     }
   },

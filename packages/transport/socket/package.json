@@ -1,0 +1,16 @@
+{
+  "name": "@eapp/transport-socket",
+  "version": "3.2.0-r3",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": { ".": { "types": "./src/index.ts", "default": "./src/index.ts" } },
+  "scripts": { "build": "tsc -p tsconfig.json" },
+  "dependencies": {
+    "@eapp/core": "workspace:*",
+    "@eapp/interaction": "workspace:*",
+    "@eapp/state": "workspace:*",
+    "@eapp/transport-memory": "workspace:*"
+  }
+}
