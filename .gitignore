@@ -1,0 +1,23 @@
+# ---- deps / build output ----
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.vitest/
+coverage/
+
+# ---- editors / OS ----
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# ---- logs ----
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# ---- local scratch ----
+/tmp/
+!.gitignore

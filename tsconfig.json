@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@eapp/core": ["./packages/core/src/index.ts"],
+      "@eapp/interaction": ["./packages/interaction/src/index.ts"],
+      "@eapp/state": ["./packages/state/src/index.ts"],
+      "@eapp/transport-memory": ["./packages/transport/memory/src/index.ts"],
+      "@eapp/runtime": ["./packages/runtime/src/index.ts"]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*.ts",
+    "packages/transport/*/src/**/*.ts",
+    "packages/*/test/**/*.ts",
+    "packages/transport/*/test/**/*.ts",
+    "tests/**/*.ts",
+    "vitest.config.ts"
+  ]
+}
