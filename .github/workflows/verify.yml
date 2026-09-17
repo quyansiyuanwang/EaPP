@@ -10,8 +10,14 @@ on:
 # that is not also in that command.
 #
 # Go is needed because the last segment runs the independent Go implementation
-# through the language-neutral harness: 33 checks against each of two
-# implementations, where the harness imports nothing from either.
+# through the language-neutral harness — every check the driver's declared layers
+# cover, against each of two implementations, where the harness imports nothing
+# from either. The step below also runs the Go module's own tests, which CI cannot
+# get from `pnpm run verify`.
+#
+# No check counts are written here. There were, and they went stale twice: the
+# moment one driver covered two layers the two drivers stopped running the same
+# number, and a comment that counts is a comment that lies.
 jobs:
   verify:
     runs-on: ubuntu-latest

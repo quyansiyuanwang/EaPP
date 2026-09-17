@@ -21,24 +21,15 @@
  * Read-only. Usage: node tools/check-duplicates.mjs [--json]
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
+import { markdownFiles, relative } from './walk.mjs';
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SKIP_DIRS = new Set(['node_modules', '.git', 'tmp', 'dist', 'coverage']);
 /** Historical by design: quotes of superseded proposals. */
 const SKIP_FILES = [/^docs\/analysis\//];
-
-function walk(dir, out = []) {
-  for (const entry of readdirSync(dir)) {
-    if (SKIP_DIRS.has(entry)) continue;
-    const full = path.join(dir, entry);
-    if (statSync(full).isDirectory()) walk(full, out);
-    else if (entry.endsWith('.md')) out.push(full);
-  }
-  return out;
-}
 
 function fencedBlocks(text) {
   const blocks = [];
@@ -116,8 +107,8 @@ function members(body) {
 }
 
 const byName = new Map();
-const files = walk(ROOT)
-  .map((f) => path.relative(ROOT, f).split(path.sep).join('/'))
+const files = markdownFiles(ROOT)
+  .map((f) => relative(ROOT, f))
   .filter((rel) => !SKIP_FILES.some((re) => re.test(rel)))
   .sort();
 

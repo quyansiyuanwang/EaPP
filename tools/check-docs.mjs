@@ -20,41 +20,27 @@
  * Exit:   0 = all rules pass, 1 = at least one violation
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
+import { markdownFiles } from './walk.mjs';
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'coverage']);
 /** Files that are templates rather than documents, and may reference examples. */
 const SKIP_FILES = new Set(['docs/reference/_TEMPLATE.md']);
 
-function walk(dir, out = []) {
-  for (const entry of readdirSync(dir)) {
-    if (SKIP_DIRS.has(entry)) continue;
-    const full = path.join(dir, entry);
-    if (statSync(full).isDirectory()) walk(full, out);
-    else if (entry.endsWith('.md')) out.push(full);
-  }
-  return out;
-}
-
 /**
- * Every .md file in the repository is in scope, not just `docs/`. A document that lives
- * outside the scanned set is a document whose links are never checked — and the examples
- * index cross-links back into `docs/`, so leaving it out would have made the gate quietly
- * narrower than the documentation surface it claims to cover.
+ * Every `.md` file in the repository is in scope.
+ *
+ * This used to be a hand-written root list — `docs`, `examples`, and the four root
+ * files — under a comment claiming exactly what the code now does. Seven documents were
+ * outside it, including `conformance/driver.md`, which is the driver protocol contract
+ * itself, and everything under `rfcs/`. A gate that under-reports its own coverage is
+ * worse than a narrow one that admits it: the comment stops anyone from looking.
  */
-const roots = ['README.md', 'CONTRIBUTING.md', 'GOVERNANCE.md', 'CHANGELOG.md', 'docs', 'examples']
-  .map((p) => path.join(ROOT, p))
-  .filter((p) => existsSync(p));
-
-const files = [];
-for (const entry of roots) {
-  if (statSync(entry).isDirectory()) walk(entry, files);
-  else files.push(entry);
-}
+const files = markdownFiles(ROOT);
 
 /** `[text](target)` -- but not `![...]` images inside code fences. */
 const LINK = /\[[^\]]*\]\(\s*([^)\s]+)(?:\s+"[^"]*")?\s*\)/g;
