@@ -1,6 +1,6 @@
 # 快速上手
 
-> **读完这一页，你应当能跑起来，并看懂 `pnpm run demo` 的每一行输出。**
+> **本页说明如何运行参考实现，并解释 `pnpm run demo` 的每一行输出。**
 
 先读 [概念：三层心智模型](./concepts.md)。演示里的每一行都落在某一层上，
 不知道层与层的分工，输出就只是一串日志。
@@ -98,7 +98,7 @@ pnpm run demo
 它执行 `tsx examples/hello-plugins/index.ts`：三个**互不相识**的插件被注册、发现、连接、
 激活、调用，并共享一份带版本的状态。下面用同一份输出逐段讲。
 
-`binding-1`、`ch-1` 这类 id 是**按创建顺序递增**的，所以你的输出里数字可能不同；
+`binding-1`、`ch-1` 这类 id 按创建顺序递增，因此实际输出中的数字可能不同；
 判读时看的是形状与语义，不是字面值。
 源码里的 `\x1b[1m` 只是把标题加粗，下面引用的是去掉 ANSI 转义后的纯文本。
 
@@ -276,7 +276,7 @@ and sharing versioned state — each one unaware of the others.
 ## 下一步
 
 - [写一个插件](./write-a-plugin.md) —— 从零写出一个能被发现、连接、激活、调用的插件
-- [实现一个 Transport](./write-a-transport.md) —— 让 EaPP 跑在你的消息系统上
+- [实现一个 Transport](./write-a-transport.md) —— 使 EaPP 运行于任意消息系统之上
   （含「用另一种语言实现 EaPP」一节）
 - [概念：三层心智模型](./concepts.md) —— 回头再看一遍，这次看的是层与层的边界
 

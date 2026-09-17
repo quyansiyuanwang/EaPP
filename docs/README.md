@@ -83,7 +83,6 @@
 | [v3.2.0-state](./spec/v3.2.0-state.md) | **FROZEN** | State Mode：CAS 冲突策略、Snapshot/Restore |
 | [版本索引与变更记录](./spec/CHANGELOG.md) | — | 三层之间的修订、勘误与映射 |
 | [决议记录](./spec/DECISIONS-v3.2.0-r3.md) | — | 每条规则**为什么**是这样 |
-| [缺口分析](./analysis/GAP-ANALYSIS-v3.2.0-r2.md) | — | 原始草案的 40 条缺陷与 12 处跨文档冲突 |
 
 ```
 规范性（normative）       docs/spec/

@@ -74,9 +74,8 @@ pnpm test -- --watch                 # 监听模式
 
 工具链：Node ≥ 20、pnpm 10、TypeScript 7、vitest 5、Go 1.24+。
 
-**改了 `packages/` 里的东西，第 ⑥ 段会告诉你有没有破坏别的实现。** 它不 import
-任何 `@eapp/*`，所以它看见的是协议表面 —— 参考实现内部怎么改都行，
-改了行为它就会红。手册见 [`conformance/README.md`](conformance/README.md)：
+**第 ⑥ 段判定的是协议表面行为。** 该 harness 不引用任何 `@eapp/*`，
+因此参考实现的内部重构不触发失败，行为变更触发失败。手册见 [`conformance/README.md`](conformance/README.md)：
 覆盖了 51 条 v3.0 不变量中的哪 40 条，以及每一条没覆盖的**为什么**。
 
 ---

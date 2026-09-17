@@ -1,6 +1,6 @@
 # 写一个插件
 
-> **读完这一页，你应当能写一个能被发现、连接、激活、调用的插件。**
+> **本页说明如何编写一个可被发现、连接、激活、调用的插件。**
 
 前置阅读：[概念：三层心智模型](./concepts.md)（至少读完第 4 节）。
 本页所有类型与行为都取自参考实现 `packages/runtime/src/{plugin,runtime}.ts`，
@@ -256,7 +256,7 @@ const identity = this.#identities.isIssued(module.manifest.identity)
   `domain` / `id` / `instance` 三个字段，多写一个（比如 `version`）会直接抛
   `EAPP_IDENTITY_INVALID`，而不是被悄悄丢掉。
   早期版本是丢弃字段的 —— 那让 ID-6（身份不含版本）在最关键的一条路径上静默失效：
-  写错了不报错，只是你以为的那个身份根本没生效。
+  写错了不会报错，但预期的身份并未生效。
 - 同一 `(domain, id, instance)` 注册两次会被拒绝：`EAPP_IDENTITY_DUPLICATE`（ID-3 / P-1）。
 
 **② Capability 的 SemVer 是真的 SemVer。** `version` 必须是 `major.minor.patch`
@@ -405,7 +405,7 @@ DORMANT     其余情况（尚在关系中，但不能服务）
 **`invoke()` 不是本地函数调用。** 它真的把请求信封写进 Transport、再由 Channel 上的
 dispatcher 读回来交给 handler —— 这样才真正跑过了三层。它会：
 
-- 必要时替你建立 `(from=提供方, to=消费方)` 的 Binding 与 `request` 模式的 Channel；
+- 必要时建立 `(from=提供方, to=消费方)` 的 Binding 与 `request` 模式的 Channel；
 - 生成 `correlationId`，登记未决调用（RQ-1）；
 - 带上 `deadline`；超时后以 `EAPP_TIMEOUT` 拒绝并**放弃**该请求（RQ-4），
   迟到的响应会被静默丢弃，不会二次结算。
@@ -522,7 +522,7 @@ handler 抛出的错误会在响应信封里变成一个**码**，调用方看�
 
 `EappError` 的 `message` 里**总是**包含 `code` 前缀（已登记的偏离 D-4），
 所以 `rejects.toThrow('EAPP_...')` 这种规范形状的断言能够成立。
-如果你把已有的 `EappError` 再包一层，`message` 会出现重复前缀 —— 观察 `code` 字段，不要解析 `message`。
+若对已有的 `EappError` 再次包装，`message` 会出现重复前缀 —— 应当读取 `code` 字段，而非解析 `message`。
 
 ---
 
@@ -530,7 +530,7 @@ handler 抛出的错误会在响应信封里变成一个**码**，调用方看�
 
 | 禁止 | 为什么 |
 |---|---|
-| 自己签发 [`Identity`](../reference/identity.md) | v3.0 ID-5：`Identity MUST NOT be self-issued`。身份由 `IdentityRegistry` 铸造。运行时**校验**你带进来的身份，多出的字段会被拒绝（`EAPP_IDENTITY_INVALID`），不会"相信你宣布自己是谁" |
+| 自己签发 [`Identity`](../reference/identity.md) | v3.0 ID-5：`Identity MUST NOT be self-issued`。身份由 `IdentityRegistry` 铸造。运行时**校验**传入的身份，多余字段会被拒绝（`EAPP_IDENTITY_INVALID`），不采信自行声明的身份 |
 | 把版本塞进 Identity | ID-6：身份形状恰好是 `domain` / `id` / `instance`。版本属于 `Capability.version`，塞进身份会让"升级"变成"换了一个人" |
 | 直接依赖另一个插件的模块 | 那就不是组合，是编译期耦合。跨插件只能通过运行时：发现、连接、调用 |
 | 假设发现等于可调用 | D-3 / D-5：发现不是组合，也不替代 Binding |
@@ -549,7 +549,7 @@ request/response 信封，`publish()` 只做 `transport.send()`。
 
 **事件与流的消费一律走显式的 `runtime.subscribe()`** ——
 它返回一个真正的 v3.1 [`Subscription`](../reference/subscription.md)，
-带一个由你 `ack()` 推进的 [`Cursor`](../reference/cursor.md)：
+带一个由调用方 `ack()` 推进的 [`Cursor`](../reference/cursor.md)：
 
 ```typescript
 const subscription = await runtime.subscribe(channel.id, { type: 'metric' });

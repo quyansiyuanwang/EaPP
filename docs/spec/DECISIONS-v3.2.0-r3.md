@@ -1,6 +1,6 @@
 # EaPP v3.2.0-r3 — Final Review 决议记录
 
-**输入**：`docs/analysis/GAP-ANALYSIS-v3.2.0-r2.md`（F-01 … F-39 + X-1 … X-12）
+**输入**：v3.2.0 冻结候选 r2 的评审结果（40 条内部缺陷 F-01 … F-39，12 处跨文档冲突 X-1 … X-12）
 **输出**：v3.2.0 语义冻结所需的全部裁定
 **状态**：已并入 —— D-01…D-38 已写入 `docs/spec/v3.2.0-state.md`，
 R-0…R-13 已写入 `docs/spec/v3.1.0-interaction.md` 与 `docs/spec/CHANGELOG.md`。

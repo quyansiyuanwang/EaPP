@@ -11,14 +11,14 @@
 
 | 版本 | 文档 | 状态 | 来源 |
 |---|---|---|---|
-| **v3.0.0-core** | `docs/spec/v3.0.0-core.md` | FROZEN | `git show "9b78d40:tmp/draft/EaPP v3.0.0 Composition Core.md"`（草案原文） 逐字副本，**未作任何修改** |
-| **v3.1.0-interaction** | `docs/spec/v3.1.0-interaction.md` | FROZEN | `git show "9b78d40:tmp/draft/EaPP v3.1.0 Interaction Layer.md"`（草案原文）（Draft）+ 9 条勘误（本文 §v3.1.0） |
-| **v3.2.0-state** | `docs/spec/v3.2.0-state.md` | FROZEN | `git show "9b78d40:tmp/draft/EaPP v3.2.0 State Mode — Freeze Candidate r2.md"`（草案原文） + r3 修订（本文 §v3.2.0） |
+| **v3.0.0-core** | `docs/spec/v3.0.0-core.md` | FROZEN | 冻结于协议 3.0.0。补入 C-7（E-I）与 §19.3 一致性声明接口的修正（E-J） |
+| **v3.1.0-interaction** | `docs/spec/v3.1.0-interaction.md` | FROZEN | 冻结于协议 3.1.0。恢复 §2.4（E-A）、补全 §2.2 转移表（E-B）、新增 §6.2 规则 7（E-H） |
+| **v3.2.0-state** | `docs/spec/v3.2.0-state.md` | FROZEN | 冻结于协议 3.2.0。补入 §5.4、§10.5、§15.1（E-G） |
 | — | `docs/spec/DECISIONS-v3.2.0-r3.md` | 决议记录 | Final Review 的全部裁定（D-01…D-38、R-0…R-13） |
-| — | `docs/analysis/GAP-ANALYSIS-v3.2.0-r2.md` | 分析记录 | 40 条内部缺陷（F-01…F-39）+ 12 处跨文档冲突（X-1…X-12） |
 
-> **v3.0 是逐字副本。** 它已自述冻结（§0），本轮**没有改动一个字**；
-> 放在 `docs/spec/` 下只是为了给一致性闸门一个稳定的路径。
+> **关于 r2 草案。** 冻结候选 r2 存在 40 条内部缺陷（F-01…F-39）与 12 处跨文档冲突
+> （X-1…X-12），已在 r3 全部关闭。逐条的裁定与理由见 `DECISIONS-v3.2.0-r3.md`；
+> 该草案本身已从工作树移除，其内容不再构成任何规范文本的一部分。
 
 ---
 

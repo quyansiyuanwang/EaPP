@@ -120,7 +120,7 @@ B-8 尤其：它是一条并发正确性要求，而外部 harness 在结构上�
 2. 跑：
 
 ```bash
-node conformance/harness/run.mjs --driver "<你的命令>" --cwd <工作目录>
+node conformance/harness/run.mjs --driver "<命令>" --cwd <工作目录>
 ```
 
 `--list` 列出全部检查项，`--only B-3` 只跑一条，`--verbose` 显示通过的每一条。

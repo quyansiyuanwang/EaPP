@@ -1,6 +1,6 @@
 # 实现一个 Transport
 
-> **读完这一页，你应当能让 EaPP 跑在你的消息系统上。**
+> **本页规定 Transport 实现的完整契约。满足该契约，EaPP 即可运行于任意消息系统之上。**
 
 前置阅读：[概念：三层心智模型](./concepts.md) 的 **§2 与 §7**。
 本页所有类型与行为都取自 `packages/interaction/src/transport.ts`、
@@ -15,7 +15,7 @@
 Composition Core   ──►  谁和谁组合
 Interaction Layer  ──►  组合之后，它们如何互动
 State Mode         ──►  它们如何共享状态
-Transport          ──►  消息物理上怎么走          ← 你在这里
+Transport          ──►  消息物理上怎么走          ← 实现位置
 ```
 
 Transport 是**最下面一层**，它的职责只有两件事：
@@ -82,8 +82,8 @@ interface Transport {
 `type` 与实际负载的 `payload.type` 比较。校验由 `validatePattern` 完成，
 两种以外抛 `EAPP_CHANNEL_INVALID`。
 
-**`Cursor` 是不透明的。** 消费者 MUST NOT 解析它。你只要保证"同一条 Channel 内可比较、
-且严格递增"，形状由你决定 —— 但由 §4 的约束，"由你决定"实际上只剩很窄的一类。
+**`Cursor` 是不透明的。** 消费者 MUST NOT 解析它。实现方只需保证"同一条 Channel 内可比较、
+且严格递增"，形状由实现方决定 —— 但 §4 的约束使可选的形状只剩很窄的一类。
 
 ---
 
@@ -228,7 +228,7 @@ CR-4  Resume MUST continue from cursor.
 CR-5  If Transport does not support cursor, MUST return EAPP_CURSOR_UNSUPPORTED.
 ```
 
-把它翻译成对你这个实现的要求：
+它对 Transport 实现的要求是：
 
 - **在一条 Channel 内，cursor 必须构成全序**，且 `send` 每次分配的值严格大于此前所有值（TR-8）。
 - **cursor 是一个可以直接比较的字符串。** 规范没有规定形状，但**比较由字符串完成** ——
@@ -243,8 +243,8 @@ export function compareCursor(a: Cursor, b: Cursor): number {
 
 - **cursor 必须可持久化**（CR-2）：把它存进数据库、进程重启后拿出来继续读，必须仍然有效。
   这就要求它编码的是**日志位置**，不是"内存里的下标"。
-- **ack 语义不是你的职责**（CR-3）：cursor 只随显式 ack 前移，这条规则由 v3.1 的订阅实现保证。
-  你要做的是：`readAfter(channel, cursor, …)` 如实返回"严格大于 cursor"的东西，
+- **ack 语义不属于 Transport 的职责**（CR-3）：cursor 只随显式 ack 前移，这条规则由 v3.1 的订阅实现保证。
+  Transport 的职责是：`readAfter(channel, cursor, …)` 如实返回"严格大于 cursor"的东西，
   并且**永远不要**因为"投递过了"就自己推进任何东西。
 
 ### 4.2 参考实现怎么做到"字典序 = 数值序"
@@ -284,7 +284,7 @@ bare decimal sorted by compareCursor: ["1","10","2","9"]
 而错误方式是**静默的**：订阅的 ack 只会把 cursor 停在更早的位置，表现为"消息反复重投"或
 "位置停滞"，不会报错。
 
-如果你不能保证等宽，正确的做法不是"小心一点"，而是换一种形状 —— 例如
+若无法保证等宽，正确做法是更换编码形状，而非依赖谨慎比较 —— 例如
 `epoch` + 零填充序号、或 (timestamp, 零填充序号) 拼接。**只要保证：同样长度的字符串，
 字典序与数值序一致。**
 
@@ -590,7 +590,7 @@ export class ArrayTransport implements StateTransport {
     //   从未存在 + expectedRevision === null   →  EAPP_STATE_KEY_NOT_FOUND（DEL-4）
     //   从未存在 + expectedRevision === Revision →  EAPP_REVISION_CONFLICT
     //
-    // 第二种是"我来晚了/我搞错了"（CAS 冲突，可重试），第一种是"你想删一个
+    // 第二种是调用方来晚了（CAS 冲突，可重试），第一种是企图删除一个
     // 从来没存在过的东西"（调用错误，不可重试）。合成一个码，调用方就再也分不清
     // 这两种情况 —— 而它们的重试策略正好相反。
     if (!current) {
@@ -714,7 +714,7 @@ const state = configureStateChannel(
   { conflictPolicy: 'cas', owner: { domain: 'eapp.guide', id: 'owner', instance: 'owner-1' } },
 );
 
-// 消息：给订阅提供一个 SubscriptionSource，指向你的 transport
+// 消息：构造 SubscriptionSource，其读取指向该 transport
 const subscription = await TransportSubscription.create('orders', {}, {
   head: async () => (await transport.resolveAnchor('orders', 'latest')) ?? '',
   earliest: async () => '',
@@ -786,7 +786,7 @@ TS-5  A Transport MUST NOT declare stateConsistency = 'strong'
       beyond its durabilityBoundary.
 ```
 
-**为什么必须有这条。** 如果你把 `stateConsistency` 声明成 `'strong'`，
+**这条规则的必要性。** 若把 `stateConsistency` 声明成 `'strong'`，
 上层就有权假设"所有参与者看到同一份状态、写入有全序"，并据此做 CAS。
 而一个 `durabilityBoundary: 'process'` 的实现只保证"本进程内的可见性" ——
 两个进程各有一份内存状态，各自都能通过 CAS 检查，于是**同一个写入会被执行两次**，
@@ -907,17 +907,17 @@ supportsStateSnapshot: false,   // ← restore 依赖 nextRevision，所以快�
 
 ---
 
-## 9. 检查清单：怎么证明你的 Transport 是合规的
+## 9. 合规性检查清单
 
 ### 9.1 先跑仓库自带的两道闸门
 
 ```bash
-pnpm run typecheck        # 你的实现必须满足 Transport / StateTransport 接口
+pnpm run typecheck        # 实现必须满足 Transport / StateTransport 接口
 pnpm run test             # 一致性套件（参考实现的不变量覆盖）
-pnpm run check:invariants # 冻结闸门：每个不变量都至少有一个测试（这一层不由你的实现改变结果）
+pnpm run check:invariants # 冻结闸门：每条不变量至少对应一个测试（判定对象为参考实现）
 ```
 
-### 9.2 再对你自己的实现跑这些断言
+### 9.2 针对本实现逐项验证
 
 下面每一条都对应一个真实的失败模式。把它们写成 `vitest` 用例，
 断言 `cursor` 与 `revision` 的**可比较性**，不要断言字面值 —— 位置会变，性质不会。
@@ -925,7 +925,7 @@ pnpm run check:invariants # 冻结闸门：每个不变量都至少有一个测�
 **位置与顺序**
 
 - [ ] 连续 `send` 两个值，第二个 `compareCursor(a, b) < 0` 成立；连续几百次仍然成立。
-- [ ] 你的 cursor **不是** `'1'`, `'2'`, `'10'` 这种形状：把 1..12 的 cursor 排序，
+- [ ] cursor 的形状**不是** `'1'`, `'2'`, `'10'` 这种形状：把 1..12 的 cursor 排序，
      结果必须是数值序（§4.3 的反例）。
 - [ ] `readAfter(ch, undefined, {all:true})` 返回从最早已保留位置开始的全部消息（TR-6）。
 - [ ] `readAfter(ch, c, {all:true})` 严格排除 `c` 本身（TR-5）。
@@ -958,8 +958,8 @@ pnpm run check:invariants # 冻结闸门：每个不变量都至少有一个测�
       `assertCapability(transport, 'cursor')` 会抛 `EAPP_CURSOR_UNSUPPORTED`、
       `assertCapability(transport, 'lease')` 会抛 `EAPP_UNSUPPORTED`；
       这两个检查是**导出给调用方使用的**，参考实现内部没有自动调用点 ——
-      要在你自己的路径上主动调它，否则 `supportsCursor: false` 只是一句没人读的声明。
-- [ ] `assertDeclared(transport)` 对你的实现通过（`persistent` 是 boolean、`ordering` 是 string）。
+      须在实现自身的调用路径上主动调用，否则 `supportsCursor: false` 只是一句没人读的声明。
+- [ ] `assertDeclared(transport)` 在本实现上通过（`persistent` 是 boolean、`ordering` 是 string）。
 - [ ] 声明 `supportsStateRevision: false` 时，`set`/`delete` 抛 `EAPP_STATE_UNSUPPORTED`，
       而 `get`/`list` **仍然工作**（TS-2）。这一条由 `assertStateCapability` 自动执行。
 - [ ] 声明 `supportsStateWatch: false` 时，`watch()` 抛 `EAPP_WATCH_UNSUPPORTED`。
@@ -972,15 +972,15 @@ pnpm run check:invariants # 冻结闸门：每个不变量都至少有一个测�
 [一致性报告](../CONFORMANCE.md)）。`tests/conformance/*.test.ts` 里**大多数**测试的名字
 带着它检验的不变量 ID —— 覆盖清单是逐条对照的依据。
 但并非每条测试都带 ID：有些测的是规范的形状（例如 `§2.2: ChannelRef carries only id and binding`），
-它们的价值同样成立，只是不对应某一条编号。为你的实现移植这些用例时：
+它们的价值同样成立，只是不对应某一条编号。移植这些用例时：
 
 - 保持 ID 与断言的**性质**，不要复制参考实现的位置字面量。D-20 明确要求：
   冲突用例 MUST 用 `nextRevision()` 索取一个必然不匹配的 revision，
   `compareRevision` 用例 MUST 使用 Transport 真实产出的 revision ——
   否则等于把内存实现的格式冻结成跨 Transport 契约，任何非内存实现都无法通过。
 - Revision 对消费者是 opaque 的（REV-5）：断言"顺序关系"，不要断言字符串形状。
-- 用 `pnpm run check:invariants` 的输出核对：如果你的实现覆盖不了某个不变量，
-  那说明你的能力声明写错了 —— 关掉对应的能力 flag，而不是让测试通过。
+- 用 `pnpm run check:invariants` 的输出核对：若某个不变量无法覆盖，
+  则说明能力声明有误 —— 应关闭对应的能力标志，而非修改测试。
 
 ---
 
@@ -991,12 +991,12 @@ pnpm run check:invariants # 冻结闸门：每个不变量都至少有一个测�
 
 ### 10.1 什么是规范性的，什么是实现自由
 
-| 类别 | 内容 | 你的自由 |
+| 类别 | 内容 | 实现自由度 |
 |---|---|---|
 | **规范性** | 三份 FROZEN 规范里的语义与不变量：五个本体、四种模式、Cursor / 投递 / Lease、Revision / CAS / 删除可见性、能力声明与闸门 | 无。不变量是判定标准，不是建议 |
 | **规范性（形状）** | 身份是 `{domain, id, instance}`；模式信封的字段名与含义；`EAPP_*` 错误码不得重命名或改义 | 无。跨语言互通靠的就是这些名字 |
 | **实现自由** | 数据结构、并发模型、id 如何生成、cursor 的具体形状、传输协议、序列化格式、`waitForChange` 存不存在 | 完全自由 |
-| **不可实现的部分** | 不变量要求"存在一个测试"（v3.0 §19.2 的冻结义务） | 你需要自建测试，见 §10.3 |
+| **不可实现的部分** | 不变量要求"存在一个测试"（v3.0 §19.2 的冻结义务） | 须自建测试，见 §10.3 |
 
 三条**语言无关**的硬约束，任何语言都必须满足：
 
@@ -1038,17 +1038,17 @@ pnpm run check:invariants # 冻结闸门：每个不变量都至少有一个测�
 ```
 ① 读 ID，不读实现。测试名里的 `CR-3`、`TS-4` 比测试体更重要 ——
    那是规范里的规则，测试体只是它的一种触发方式。
-② 用你的语言重写这些触发方式，保留"性质"断言。
+② 以目标语言重写这些触发方式，保留"性质"断言。
    不要断言 cursor 的字面值、不要断言 id 的生成顺序。
 ③ 用 pnpm run check:invariants 的输出当移植清单：
-   每条不变量都应当能在你的语言里找到至少一个对应用例。
+   每条不变量都应当能在目标语言中找到至少一个对应用例。
 ④ 一致性报告 §6「尚未实现」里的东西不在声明内（CRDT、Trust Domain 权限、
-   以及跨进程的 ConsumerGroup）。你的实现 MAY 不做，但**不可以假装做了** ——
+   以及跨进程的 ConsumerGroup）。实现 MAY 不做，但 MUST NOT 声称已完成 ——
    尤其在跨进程的情况下：把做不到的那部分做成明确失败，而不是给一个安静的错答案。
 ```
 
 一句话：**规范是唯一的裁决者，一致性套件是它的证据。
-你的实现需要的不是"和参考实现一样"，而是"在被检验的性质上和它一样"。**
+实现需要满足的不是"与参考实现一致"，而是"在被检验的性质上一致"。**
 
 ---
 

@@ -1,17 +1,23 @@
 #!/usr/bin/env node
 /**
- * Documentation link gate.
+ * Documentation gate. Two independent rules, both of which had drifted before
+ * anything checked them:
  *
- * The reference pages cross-link heavily and are written per layer, so a renamed file or a
- * typo silently produces a dead link. Markdown gives no compile-time help, so this walks
- * every document — under `docs/` and `examples/` — and verifies that each relative link
- * resolves to something on disk.
+ *   1. Every relative link resolves. Markdown gives no compile-time help, and the
+ *      reference pages cross-link heavily, so a rename or a typo produces a dead
+ *      link silently.
  *
- * Deliberately narrow: it checks RELATIVE links only. External URLs are not fetched —
- * a network check would make `pnpm run verify` fail for reasons unrelated to the change.
+ *   2. Prose register. `docs/STYLE.md` §5 forbids the second person, and that rule
+ *      was written down and then violated throughout — including by the documents
+ *      that state it. A style rule nothing enforces is a style preference.
+ *
+ * Deliberately narrow: links are checked RELATIVE only (a network check would make
+ * `pnpm run verify` fail for reasons unrelated to the change), and the register
+ * rule checks for markers that are unambiguous rather than attempting to judge
+ * prose.
  *
  * Usage:  node tools/check-docs.mjs [--json]
- * Exit:   0 = every relative link resolves, 1 = at least one does not
+ * Exit:   0 = all rules pass, 1 = at least one violation
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -89,18 +95,74 @@ for (const file of files) {
   });
 }
 
-if (process.argv.includes('--json')) {
-  process.stdout.write(`${JSON.stringify({ ok: broken.length === 0, checked, broken }, null, 2)}\n`);
-  process.exit(broken.length === 0 ? 0 : 1);
+// ---------------------------------------------------------------------------
+// Rule 2: prose register (docs/STYLE.md §5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Files that may contain the second person, and why.
+ *
+ * `docs/STYLE.md` states the rule and `_TEMPLATE.md` restates it for reference-page
+ * authors; both necessarily quote the construction they forbid. An allowlist of two
+ * files whose reason is "they are where the rule is written" is not a loophole —
+ * anything else needs to pass.
+ */
+const REGISTER_ALLOWED = new Set(['docs/STYLE.md', 'docs/reference/_TEMPLATE.md']);
+
+/** Unambiguous markers of conversational register. Judgement calls are left to review. */
+const REGISTER_RULES = [
+  { pattern: /你/g, why: '第二人称（STYLE §5：直接陈述约束，不面向读者说话）' },
+  { pattern: /说白了|就是说吧|别用|别把|这不是吗/g, why: '口语化措辞' },
+  { pattern: /说到底|归根结底就是/g, why: '修辞性收束' },
+];
+
+const register = [];
+for (const file of files) {
+  const rel = path.relative(ROOT, file).split(path.sep).join('/');
+  if (REGISTER_ALLOWED.has(rel)) continue;
+
+  const lines = readFileSync(file, 'utf8').split(/\r?\n/);
+  let inFence = false;
+  lines.forEach((line, index) => {
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      return;
+    }
+    if (inFence) return; // code samples are verbatim, not prose
+    for (const rule of REGISTER_RULES) {
+      if (rule.pattern.test(line)) {
+        register.push({ file: rel, line: index + 1, why: rule.why, text: line.trim().slice(0, 80) });
+      }
+      rule.pattern.lastIndex = 0;
+    }
+  });
 }
 
-if (broken.length === 0) {
+// ---------------------------------------------------------------------------
+
+if (process.argv.includes('--json')) {
+  process.stdout.write(
+    `${JSON.stringify({ ok: broken.length === 0 && register.length === 0, checked, broken, register }, null, 2)}\n`,
+  );
+  process.exit(broken.length === 0 && register.length === 0 ? 0 : 1);
+}
+
+if (broken.length === 0 && register.length === 0) {
   process.stdout.write(`doc links: ${checked} relative link(s) checked, all resolve\n`);
+  process.stdout.write(`doc register: ${files.length} file(s) checked, no violations\n`);
   process.exit(0);
 }
 
-const lines = [`doc links: ${broken.length} broken of ${checked} checked`, ''];
-for (const item of broken) lines.push(`  ${item.file}:${item.line}  ->  ${item.link}`);
-lines.push('');
+const lines = [];
+if (broken.length > 0) {
+  lines.push(`doc links: ${broken.length} broken of ${checked} checked`, '');
+  for (const item of broken) lines.push(`  ${item.file}:${item.line}  ->  ${item.link}`);
+  lines.push('');
+}
+if (register.length > 0) {
+  lines.push(`doc register: ${register.length} violation(s)`, '');
+  for (const item of register) lines.push(`  ${item.file}:${item.line}  ${item.why}\n      ${item.text}`);
+  lines.push('');
+}
 process.stdout.write(`${lines.join('\n')}\n`);
 process.exit(1);

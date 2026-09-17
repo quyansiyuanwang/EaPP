@@ -1,11 +1,11 @@
 # 用另一种语言实现 EaPP
 
-> 协议的价值在于**能被第二次实现**。如果你正在用 Go / Rust / Java / Python 实现 EaPP，
-> 这一页说明什么是必须逐字遵守的、什么是可以自由决定的，以及如何证明你做对了。
+> 协议的价值在于**能被第二次实现**。本页面向以 Go / Rust / Java / Python
+> 等语言实现 EaPP 的开发者，说明哪些部分必须逐字遵守、哪些部分可以自行决定，以及如何验证实现的正确性。
 
 ---
 
-## 1. 先理解你要实现的是什么
+## 1. 实现对象
 
 三层是**单向依赖**的，所以可以实现其中一部分：
 
@@ -55,8 +55,8 @@ MUST NOT  解析它、拼接它、自己生成它、用 < 直接比较它
 MUST NOT  跨 Transport 比较它
 ```
 
-很多语言会诱惑你把它做成整数或时间戳。**不要** ——
-一旦消费者开始依赖它的内部结构，你就把一个实现细节冻结成了跨实现契约。
+以整数或时间戳实现较为自然，但**不可采用** ——
+一旦消费者开始依赖其内部结构，一个实现细节就被冻结成了跨实现契约。
 
 比较**必须**由 Transport 提供：`compareRevision(a, b) → -1 | 0 | 1`，
 并且当任一参数不是本 Transport 实例签发的值时必须拒绝。
@@ -107,7 +107,7 @@ key 存在       → 返回 cell，含 deleted: true 或 false
 
 ---
 
-## 4. 一致性套件就是"你做对了"的定义
+## 4. 一致性套件的判定标准
 
 不要只对着规范正文写实现。规范说**规则是什么**，
 `tests/conformance/` 说**怎样算做到了**。
@@ -125,7 +125,7 @@ pnpm run check:invariants    # 210 条不变量各自对应哪个测试
 | `tests/conformance/state.test.ts` | 84 条（v3.2） |
 | `tests/conformance/runtime.test.ts` | 端到端场景 |
 
-**测试名里带着不变量 ID**，所以你可以逐个对照自己实现了没有：
+**测试名包含不变量 ID**，可逐条对照实现情况：
 
 ```
 CG-6: an expired claim returns to the group on its own
@@ -135,7 +135,7 @@ SU-7 / TS-6: CAS is atomic under concurrency
 
 ### 建议的移植顺序
 
-1. 把四份测试**翻译成你的语言**，先不写实现，只让它们编译通过。
+1. 把四份测试**翻译成目标语言**，先不写实现，只让它们编译通过。
 2. 实现 `@eapp/core` 的五个本体，让 `core.test.ts` 的 51 条全绿。
 3. 实现一个内存 Transport，让 `interaction.test.ts` 的 75 条全绿。
 4. 实现 State Mode，让 `state.test.ts` 的 84 条全绿。
@@ -157,11 +157,11 @@ pnpm run conformance:external
 用 JSON lines 问它问题，只看它答什么。harness 本身是一个不 import 任何
 `@eapp/*` 的 Node 脚本 —— 所以它检查的只有协议的表面行为。
 
-你要做的不是翻译测试，而是**实现一个 driver**：stdin 收请求、stdout 回响应、
+需要的不是翻译测试，而是**实现一个 driver**：stdin 收请求、stdout 回响应、
 启动时先说一句 hello。所有操作、数据形状与错误码都在那页里定死了。
 
 ```bash
-node conformance/harness/run.mjs --driver "<你的可执行文件>" --cwd <工作目录>
+node conformance/harness/run.mjs --driver "<可执行文件>" --cwd <工作目录>
 node conformance/harness/run.mjs --list              # 有哪些检查项
 node conformance/harness/run.mjs --only B-3          # 只跑一条
 ```
@@ -170,9 +170,9 @@ node conformance/harness/run.mjs --only B-3          # 只跑一条
 没实现的层不该被算成失败。
 
 **覆盖到哪里、哪里没覆盖，都写在 [`conformance/README.md`](../../conformance/README.md) 里**，
-逐条列的是 v3.0 的 51 条不变量。别把它当"覆盖率 80%"那种数字读：
-没覆盖的每一**条**都写了为什么，其中 B-8（唯一性检查与创建必须原子）是一条
-**并发**要求，而串行的 stdio driver 结构上表达不了它 —— 那条你得自己在语言里测。
+逐条列的是 v3.0 的 51 条不变量。该清单不是覆盖率数字：
+未覆盖的每一条均注明原因，其中 B-8（唯一性检查与创建必须原子）是一条
+**并发**要求，而串行的 stdio driver 结构上无法表达它 —— 该条须在实现语言内自行测试。
 
 参考实现自己也有一个 driver（`conformance/drivers/reference.ts`）。它在那儿是为了
 **证明 harness 公平**：只有一套实现被检查时，一条恰好编码了它习惯的检查看起来
@@ -225,7 +225,7 @@ v3.2 没有定义独立的等级前缀。规范里不存在的等级 MUST NOT �
 本仓库此前误写过 `"S1"`，它在任何一份规范中都不存在，已删除。
 
 `passed` / `total` 统计的是**不变量覆盖**，不是测试条数 ——
-因为闸门判定的是覆盖。你的实现如果只做了 Composition Core，
+因为闸门判定的是覆盖。若实现仅包含 Composition Core，
 就声明 `levels: ["C1","C2","C3"]` 并给出那一层的覆盖数字。
 
 **不要声明没做的层。** 见 [`docs/CONFORMANCE.md`](../CONFORMANCE.md) §6 的做法：
