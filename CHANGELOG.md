@@ -1,136 +1,145 @@
 # 变更记录
 
-本文件记录**实现与文档**的变更。规范正文的修订（勘误、新增不变量、跨层映射）记在
-[`docs/spec/CHANGELOG.md`](docs/spec/CHANGELOG.md)。
+本文件记录**协议**的版本历史。每个版本对应一个不可变的 git 标签 `spec-<协议版本>`。
 
-格式遵循 [Keep a Changelog](https://keepachangelog.com/)；版本号遵循 [SemVer](https://semver.org/)。
+文档措辞、仓库结构与闸门的变更记在提交历史里，不在这里 —— 只有改变规范正文的内容
+才产生协议版本。
 
 ---
 
-## 未发布
+## 3.4.0 — 插件开发表面
 
-### 协议版本 3.2.0 → 3.3.0
+标签 `spec-3.4.0`。
 
-v3.0 §18.1 规定**新增不变量**属于 `3.x.0`。C-7 新增了一条不变量（E-I），
-因此协议版本升为 `3.3.0`，`eappVersion` 随之更新。
-
-层的文件名是冻结标识符，不随协议版本移动：`v3.2.0-state` 仍名为 `v3.2.0-state`。
-两者的关系此前没有写明，现补入 §18.1（E-L）。
-
-### 规范
-
-| 部分 | 变更 |
-|---|---|
-| v3.0.0-core | 新增 **C-7**：`Constraint` 的匹配语义定义为精确匹配（勘误 E-I）。§19.3 的 `ConformanceClaim` 接口修正为可表达 v3.1 / v3.2 的版本与等级（E-J）。§18.1 补入协议版本与层冻结标识符的关系（E-L） |
-| v3.1.0-interaction | 恢复 §2.4 的 Channel↔Binding 状态同步表（E-A）；补全 §2.2 的 `DRAINING → ACTIVE`（E-B）；新增 §6.4 推进规则，收拢此前只存在于勘误表中的 MUST（E-H 相关） |
-| v3.2.0-state | 补入 §5.4 `SU-4`、§10.5 冲突策略、§15.1 层级隔离（E-G） |
-
-`E1-10` 更名为 `TR-9`。该标识符形状类似勘误编号，使其落在不变量汇总声明的
-`TR-1..TR-8` 区间之外，因而从未被冻结闸门统计，也从未被测试覆盖。
+> **本版本引入的分卷 IV 尚未取得规范 §2.3 要求的评审。**
+> 正文已按提案落笔，缺口写在两处：本文件与规范元信息的状态行。
+> 提案见 [`rfcs/0002-developer-surface.md`](rfcs/0002-developer-surface.md)。
 
 ### 新增
 
-- `@eapp/transport-socket` —— 跨进程 Transport：broker 进程持有日志，其余进程通过 TCP
-  取得 `SocketTransport`。`durabilityBoundary` 声明为 `'machine'`。
-- `implementations/go/` —— Composition Core 的独立实现，仅依赖标准库，
-  由未参考 TypeScript 实现的开发者依规范正文编写。
-- `conformance/` —— 语言中立的 driver 协议与黑盒一致性 harness。
-  harness 不引用任何 `@eapp/*`，因此可用于任意实现。
-- `examples/cross-process/` —— 五个进程的端到端示例：broker、两个 worker、
-  一个 provider、一个调用方。
-- `examples/` 增至五个，各自在结尾校验结论，并接入 `pnpm run verify`。
-- `tools/check-docs.mjs` 增加正文语域检查（`docs/STYLE.md` §5）。
-- **driver 协议与 harness 扩展到 Interaction 层。** 检查项按层组织，driver 只跑它
-  在 hello 行里声明的层 —— 只实现 Composition Core 的实现不会被 Interaction 层的
-  检查判为失败，因为它并没有声明支持那一层。harness 现在报告每层的覆盖情况。
-- `tools/check-duplicates.mjs` —— 同一类型在多个文档中被复述时，比对**两边都有**的
-  成员类型是否一致。参考页复述规范类型是为了省去读者翻页，规范一改，复述就成了假话。
-- `tools/check-counts.mjs` —— 文档中与不变量、harness 检查项相关的数字，与实际算出的值比对。
-- `rfcs/` —— 改变语义的规范变更提案，及其 §18.3 要求的评审落点。
+- **第 IV 部分"插件开发表面"**（§50–§54）。它是前三部分的剖面，不是第四层：
+  不引入新的本体，只把前三部分已经要求过的操作，在名称、参数、结果与错误码上钉死。
+- **五个操作组**（§51）：发现 / 连接 / 激活 / 通信 / 调用。前四组不新增语义；
+  第五组的 `invoke` 是新操作 —— 请求-应答此前只有信封与规则，没有一个是操作。
+- 不变量 `OP-1`…`OP-9`（§54、附录 B.4）。
+- 合规等级 `CS1`…`CS5`（§53），并在 §3.2 的 `levels` 取值域中扩充这五个名字。
+- 操作签名改用语言中立记法 `op(args) -> result`，数据结构改用逐字段表格（§1.2）。
+
+### 变更
+
+- **规范正文合并为一份**。`docs/spec/eapp.md` 取代三份分层文档，章节连续编号 1–54。
+- **不变量标识符改名 7 条**，因为合并后它们在同一命名空间内冲突：
+  Lifecycle 的 `L-1`…`L-6` 改为 `LC-1`…`LC-6`；Composition Core 的 `CH-1` 改为 `CHB-1`。
+  其余 212 条不变。
+- **协议版本成为唯一的版本号**。层的"冻结标识符"制度取消；版本由标签承载，
+  文件名不再携带版本。旧文本仍在标签 `spec-3.3.0` 上可达。
 
 ### 修复
 
-- **`Discovery.watch()` 从不产生事件。** 事件队列、作用域过滤与类型校验均已实现，
-  但唯一的事件生产者从未被调用。现已由注册表变更驱动。
-- **`shutdown()` 在 handler 运行中崩溃进程。** 迟到的响应被写入已关闭的 transport，
-  异常从分离的循环中逃逸为未处理的 rejection。
-- **`EappRuntime` 无 ConsumerGroup 入口。** 指南要求插件作者以 ConsumerGroup 表达排他性，
-  而门面未提供该操作。
-- **`runtime.invoke()` 的 `from` / `to` 方向在指南中写反。** `connect` 的 `from` 是提供方，
-  `invoke` 的 `from` 是调用方。
-- **跨进程竞争消费静默失效。** 认领表位于进程内内存，两个进程会各自认为自己持有同一位置。
-  现由可注入的 `GroupStore` 承载，broker 版本共享之。
-- **跨进程请求分发不可达。** 调用方的 dispatcher 会替不属于自己的 provider 应答
-  `EAPP_CAPABILITY_NOT_EXPOSED`，与真正的响应竞争。现区分「可寻址」与「本进程执行」。
-- **`Criteria.version` 按精确值匹配。** §8.1 声明其为 SemVer range，
-  `find({version: '^1.0.0'})` 此前静默返回空集。
-- **`EappRuntimeOptions.transport` 声明为具体类。** 自定义 Transport 无法在不强转的情况下传入。
-- **`Channel.create` 接受规范之外的 delivery 取值。** `assertDeliveryAllowed` 只检查 mode
-  与 delivery 是否**相容**，从不检查 delivery 是否为 `DL-1` 声明的两个值之一，于是
-  `delivery: 'exactly-once'` 被接受并挂在 Channel 上 —— 而 `DL-2` 要求它 MUST NOT
-  出现在 Core。`mode` 当时已有校验，`delivery` 没有。**由黑盒 harness 发现**，
-  单元测试传的是类型允许的值，永远碰不到它。
+三处**悬空引用**，它们在此前的文本中一直存在，只是在合并时被 `check:spec` 抓出：
+
+- Interaction 层写着"一个 Channel MUST 恰好有一种模式（**§3.5**）"，而该文档没有 §3.5。
+- 同一层的两处引用 `**§4.4**`，而 §4 没有子节。
+- 同一层结尾声称"§1 勘误表已并入正文"，而 §1 已被删除 —— 这也解释了该文档为何从 §2 开始。
+
+规范正文另有两处点名 TypeScript 包（指出错误的构造在哪里定义），已改为语言中立的表述。
+`docs/spec/` 现在不含任何链接到自身之外的引用，也不含语言标注的代码块。
+
+附录 B 改为**纯声明块**：其中四处 `§` 引用在合并后仍带着旧编号 ——
+`ConsumerGroup（§8）` 指向 Plugin，`Request 模式（§3）` 指向版本规则。
+它们**能被解析**，因此 `check:spec` 的引用规则看不见它们。分卷的小节范围移入 `### B.n` 标题，
+`check:spec` 增加一条规则：附录 B 的声明块内 MUST NOT 出现小节引用。
+
+附录 D 改为如实登记：它原先声称每个码的产生条件在"定义处"给出，而 §18 / §33 / §47
+只登记码名。全文件核对后，**36 个码中有 17 个在正文里没有任何触发条款** ——
+两个实现可以为同一个码规定不同的触发条件，而两者都能自称合规。
+附录 D 现在把这两类分开列出。缺口本身尚未收口：需要为它们补上触发条款，或把它们从登记中移除。
+
+### 移除
+
+- 三份分层文档中的草案考古：缺陷编号（`F-01`…`F-39`、`X-1`…`X-12`）、被删除的不变量、
+  r2 → r3 的修订史、草案的目录映射。
+- 冻结声明与冻结标签附录；版本治理并入 §2。
+- **规定参考实现目录树的那一节**（原 `v3.0.0-core` §19.1）。规范描述了一份不存在的文件树，
+  而它描述的对象已经移出本仓库。
 
 ### 一致性
 
 ```
-v3.0.0-core          51 / 51 不变量
-v3.1.0-interaction   75 / 75 不变量
-v3.2.0-state         84 / 84 不变量
-                     ─────────────
-                     210 / 210
+不变量            219 / 219    全部在正文中被陈述（附录 B 是清单）
+章节              54 节        编号连续，无缺号与重号
+章节引用          90 处        全部解析
+语句比对          369 条        与合并前的三份文本逐条比对，0 处改变（9 条改写已登记）
+错误码            36 个        附录 D
 ```
 
-冻结闸门 PASS。跨实现一致性：33 项检查 × 2 份独立实现，全部通过。
-声明与覆盖范围见 [`docs/CONFORMANCE.md`](docs/CONFORMANCE.md)。
+合并本身不改变任何语义：210 条不变量的陈述文本与合并前**逐字相同**，只有章节引用与
+7 条标识符改名。比对脚本与结果见提交信息。
 
 ---
 
-## [3.2.0-r3] — FROZEN
+## 3.3.0
 
-标签 `v3.2.0`。首次将三份规范、参考实现与一致性套件对齐到同一状态。
+新增 `C-7`：`Constraint` 的匹配 MUST 是"`kind` 相等且 `value` 结构相等"。
 
-### 规范
+在此之前，§4.1 定义了 `Constraint`、§8.1 允许用 `Constraints` 筛选，但**从未说过"匹配"指什么**。
+两个实现可以各自理解成子集、范围或谓词，而都自称合规。更丰富的匹配属于 Extension。
 
-- **v3.0.0-core** —— 冻结。
-- **v3.1.0-interaction** —— 冻结。定义 Channel / Subscription / ConsumerGroup /
-  Delivery / Lease / Cursor / Transport，并补齐四种交互模式的消息信封。
-- **v3.2.0-state** —— 冻结。定义 StateCell / Revision / StateUpdate / StateWatcher /
-  CAS 冲突策略 / Snapshot。
+按 §2.1，新增不变量属于 `3.x.0`，因此协议版本升为 `3.3.0`。
 
-修订的完整记录见 [`docs/spec/CHANGELOG.md`](docs/spec/CHANGELOG.md)，
-每条裁定的依据见 [`docs/analysis/DECISIONS-v3.2.0-r3.md`](docs/analysis/DECISIONS-v3.2.0-r3.md)。
-
-### 新增
-
-- `@eapp/core` —— Identity / Capability / Plugin / Binding / Lifecycle / Discovery / CompositionCore
-- `@eapp/interaction` —— Channel / Subscription / ConsumerGroup / Delivery / Lease / Cursor /
-  AckContext / Transport / 模式消息
-- `@eapp/state` —— StateCell / Revision / StateUpdate / StateWatcher / StateChannel / StateTransport
-- `@eapp/transport-memory` —— 参考 Transport，同时实现 v3.1 与 v3.2 接口
-- `@eapp/runtime` —— Bootstrap 与五个操作的门面
-- `tools/check-invariants.mjs` —— 冻结闸门（v3.0 §19.2）
-- `examples/hello-plugins` —— 端到端示例
-
-### 修复
-
-实现过程中由测试发现的缺陷：
-
-- **订阅循环先读后等** —— 写入落在「读」与「等」之间时丢失唤醒，观察者永久挂起。
-- **重投递时关闭消费者持有的 ack 上下文** —— 消费者的 `ack()` 成为静默 no-op，位置永不前进。
-- **无界忙轮询** —— 未 ack 的项被反复重投，导致堆溢出。现按 `pollIntervalMs` 节流。
-- **并发 `invoke` 未去重** —— 同一 Binding 派生出多个 Channel，除一个外全部超时。
-- **`resolveAnchor('latest')` 只跟踪状态位置** —— 流订阅者取得的是状态位置而非消息位置。
-- **Binding 进入 DORMANT 时 Channel 保持 ACTIVE** —— 违反 v3.1 §2.4。
-
-### 一致性
+同版本内修正的还有：§3.2 的 `ConformanceClaim` 曾把 `eappVersion` 钉成字面量 `'3.0.0'`、
+把 `levels` 限定为 `C1`–`C8`，使覆盖 Interaction 与 State 的实现**做不出合法声明**。
+该字段改为 `string`，等级扩充为规范定义过的全部名称。
 
 ```
-v3.0.0-core          51 / 51 不变量
-v3.1.0-interaction   74 / 74 不变量
-v3.2.0-state         84 / 84 不变量
+不变量    Composition Core 51
 ```
 
-### 已登记的偏离
+---
 
-四项，修正的对象是规范自身的矛盾，正文已同步。见 [`docs/CONFORMANCE.md`](docs/CONFORMANCE.md) §5。
+## 3.2.0
+
+State Mode 加入。
+
+- 新增 `StateCell` / `Revision` / `StateUpdate` / `StateWatcher` / `StateSnapshot` / `StateTransport`
+- 新增不变量 `SC-*` / `SU-*` / `SW-*` / `SNAP-*` / `TS-*` / `IX-*` / `DEL-*` / `API-*` / `REV-*` / `CF-*`
+- 四条改变语义内核的裁定：`Revision` 就是日志位置（不是 per-cell 计数器）；
+  `delete` 是 Transport 的一等原语（不是 `set` 的语法糖）；
+  `maxRevision` 是读取 cells **之前**的 head（去循环化，使 `SNAP-1` 可被违反因而可被测试）；
+  取消 CRDT 的能力豁免，改为收紧能力标志（`TS-4`）
+
+```
+不变量    84
+```
+
+---
+
+## 3.1.0
+
+Interaction Layer 加入。
+
+- 新增 `Channel` / `Subscription` / `ConsumerGroup` / `Delivery` / `Lease` / `Cursor` / `AckContext` / `Transport`
+- 新增不变量 `CH-*` / `DL-*` / `L-*` / `CR-*` / `AK-*` / `CG-*` / `SUB-*` / `TR-*` / `CC-*` / `RQ-*` / `EV-*` / `ST-*`
+- 新增错误码 `EAPP_CURSOR_TOO_OLD`、`EAPP_SUBSCRIPTION_INVALID`
+- 定义 `Channel` 由 `Binding` 派生的创建路径，以及 state 模式的三段式路径
+- 合规等级 `I1`–`I7`
+
+```
+不变量    75
+```
+
+---
+
+## 3.0.0
+
+Composition Core 冻结。协议的第一个版本。
+
+- 五个核心概念：Identity / Capability / Plugin / Binding / Lifecycle
+- Discovery 的语义与操作集合
+- Composition / Lifecycle 的操作语义
+- 合规等级 `C1`–`C8`
+- 冻结语义的九个问题及答案、术语表、错误模型
+
+```
+不变量    50（`C-7` 于 3.3.0 加入）
+```

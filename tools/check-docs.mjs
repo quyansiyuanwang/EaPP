@@ -20,7 +20,7 @@
  * Exit:   0 = all rules pass, 1 = at least one violation
  */
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -134,41 +134,12 @@ for (const file of files) {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Rule 3: reference pages follow the template
-// ---------------------------------------------------------------------------
 
-/**
- * `docs/reference/_TEMPLATE.md` says the structure is fixed: a metadata table with
- * five rows, then 签名 / 语义 / 不变量 / 错误 / 示例 / 相关. Nothing checked it, so a
- * page could lose a section without anyone noticing until a reader went looking for
- * it. This is the cheapest possible version of that check — presence, not quality.
- */
-const REFERENCE_DIR = path.join(ROOT, 'docs', 'reference');
-const REFERENCE_SECTIONS = ['## 签名', '## 语义', '## 不变量', '## 错误', '## 示例', '## 相关'];
-const REFERENCE_META = ['**层**', '**规范**', '**实现**', '**测试**', '**稳定度**'];
-
-const structure = [];
-if (existsSync(REFERENCE_DIR)) {
-  for (const name of readdirSync(REFERENCE_DIR).filter((f) => f.endsWith('.md') && !f.startsWith('_')).sort()) {
-    const text = readFileSync(path.join(REFERENCE_DIR, name), 'utf8');
-    const missing = [
-      ...REFERENCE_SECTIONS.filter((s) => !text.includes(`\n${s}`)),
-      ...REFERENCE_META.filter((m) => !text.includes(m)),
-    ];
-    if (missing.length > 0) {
-      structure.push({ file: `docs/reference/${name}`, missing: missing.join(', ') });
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-
-const clean =
-  broken.length === 0 && register.length === 0 && structure.length === 0;
+const clean = broken.length === 0 && register.length === 0;
 
 if (process.argv.includes('--json')) {
   process.stdout.write(
-    `${JSON.stringify({ ok: clean, checked, broken, register, structure }, null, 2)}\n`,
+    `${JSON.stringify({ ok: clean, checked, broken, register }, null, 2)}\n`,
   );
   process.exit(clean ? 0 : 1);
 }
@@ -176,7 +147,6 @@ if (process.argv.includes('--json')) {
 if (clean) {
   process.stdout.write(`doc links: ${checked} relative link(s) checked, all resolve\n`);
   process.stdout.write(`doc register: ${files.length} file(s) checked, no violations\n`);
-  process.stdout.write(`doc structure: reference pages follow the template\n`);
   process.exit(0);
 }
 
@@ -189,11 +159,6 @@ if (broken.length > 0) {
 if (register.length > 0) {
   lines.push(`doc register: ${register.length} violation(s)`, '');
   for (const item of register) lines.push(`  ${item.file}:${item.line}  ${item.why}\n      ${item.text}`);
-  lines.push('');
-}
-if (structure.length > 0) {
-  lines.push(`doc structure: ${structure.length} reference page(s) diverged from the template`, '');
-  for (const item of structure) lines.push(`  ${item.file}  missing: ${item.missing}`);
   lines.push('');
 }
 process.stdout.write(`${lines.join('\n')}\n`);

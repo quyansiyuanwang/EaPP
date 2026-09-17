@@ -1,5 +1,10 @@
 # RFC-0001　Extension 机制的规范化
 
+> **历史记录。** 本文于三层文档合并为单一正文之前写成并评审，其 `§` 引用使用当时的编号
+> （那套文本在标签 `spec-3.3.0` 上可达）。正文**不再随规范重编号而修订** ——
+> 一份被否决的提案，其证据链比它的可读性重要。
+> 现行编号见 [`docs/spec/eapp.md`](../docs/spec/eapp.md)。
+
 | | |
 |---|---|
 | **状态** | **Rejected** —— 问题成立，但不由本提案解决。见 §7 的替代路径 |
@@ -47,7 +52,7 @@
 | 规则 | 评审结论 | 依据 |
 |---|---|---|
 | `X-1` | 编号仓库级撞号；"命名空间字符串"与冻结文本冲突；"全局唯一"无法执行 | 见下 |
-| `X-2` | **重述**。§0「MUST NOT 修改 CapabilityRef 语义」与 §18.2「全部不变量 MUST NOT 变更」已禁止之 | §0 / §18.2 |
+| `X-2` | **重述**。§0"MUST NOT 修改 CapabilityRef 语义"与 §18.2"全部不变量 MUST NOT 变更"已禁止之 | §0 / §18.2 |
 | `X-3` | 元规则，无实现对象 | — |
 | `X-4` | **两份实现都已具备**：按 name + version range 协商的机制早已存在 | `capability.ts:25`、`discovery.ts:127-141`、`capability.go:78`、`discovery.go:174` |
 | `X-5` | **重述 TR-9**（"不支持时 MUST 返回 `EAPP_UNSUPPORTED`"），且被引为"已满足"的那处是实现内的局部类型检查，不是对端协商 | v3.1 §10.4 TR-9 |
@@ -55,8 +60,7 @@
 
 ### 3.1 编号撞号
 
-`X-1` 已是本项目对**跨文档冲突**的编号（`X-1…X-12`），见
-[`docs/spec/CHANGELOG.md`](../docs/spec/CHANGELOG.md)。新增一族同名不变量会在仓库内
+`X-1` 曾是本项目对**跨文档冲突**的编号（`X-1…X-12`），记录在一份评审文档里。新增一族同名不变量会在仓库内
 产生歧义标识符。**这是本提案自身的错误，评审发现后未进入任何规范文本。**
 
 ### 3.2 与冻结文本冲突
@@ -91,7 +95,7 @@
 真正的否决理由是**没有对象**：
 
 ```
-EX-* 要断言的"Extension"      在 packages/ 与 implementations/go/ 中都不存在
+EX-* 要断言的"Extension"      在两份实现中都不存在
 ```
 
 所以任何 `EX-*` 测试都会是空转的断言 —— 形式上通过，实际上什么也没检验，
@@ -161,7 +165,7 @@ CF-3                               要求非 CAS 策略"定义在 Extension 中"
 
 | 评审者 | 维护的实现 | 结论 |
 |---|---|---|
-| A | `implementations/go/`（Composition Core） | Reject as written; accept with changes |
-| B | `packages/`（TypeScript 参考实现） | Accept with changes |
+| A | 当时的 Go 实现（Composition Core） | Reject as written; accept with changes |
+| B | 当时的 TypeScript 参考实现（三层） | Accept with changes |
 
 两位评审均**未编辑任何文件**。两份意见的实质内容见 §3 与 §5。

@@ -4,8 +4,8 @@
 
 | | |
 |---|---|
-| 协议版本 | `3.3.0` |
-| 状态 | FROZEN |
+| 协议版本 | `3.4.0` |
+| 状态 | FROZEN。`3.4.0` 引入的分卷 IV 尚未取得 §2.3 要求的评审，见 `CHANGELOG.md` |
 | 规范用语 | MUST / MUST NOT / SHOULD / SHOULD NOT / MAY（RFC 2119） |
 | 适用范围 | 任何语言、任何运行时、任何传输 |
 
@@ -45,9 +45,11 @@ Composition Core  →  Interaction Layer  →  State Mode  →  Transport
 
 参数与结果中的类型名（`PluginRef`、`Channel`、`Cursor` 等）在本文件内定义。每个操作除签名外 MUST 有一节规范性描述，给出输入、输出、错误码与适用不变量。
 
+签名**不标注异步性**。一个操作是否 MUST 在返回之前完成其语义效果，由该操作的条款规定；`->` 之后写的是结果，等待本身不是语义的一部分。
+
 **数据结构**以逐字段表格给出，每个字段标注名称、类型、必需性。字段名与操作名是**跨实现契约的一部分**：实现 MUST 使用这些名字，MUST NOT 改名或改义。
 
-**示例**使用某一具体语言书写，仅为说明性内容，不构成规范要求。示例中的类型标注（`string`、`number`、`Promise<T>` 等）表示语义类别，不要求实现使用同名类型。
+**示例**用于说明，不构成规范要求。示例中的类型标注表示**语义类别**（可比较的有序值、可序列化的值、不可透明解析的标识），不要求实现使用同名类型。
 
 **约束词**按 RFC 2119 解释。凡陈述中出现 MUST / MUST NOT / SHOULD / SHOULD NOT / MAY，即为规范要求；其余说明性文字不构成要求。
 
@@ -231,13 +233,13 @@ Discovery 是围绕这些概念的操作集合，不是新实体。
 
 ### 6.1 定义
 
-```typescript
-interface Identity {
-  domain: string;      // 命名域，例如 "com.example"
-  id: string;          // 逻辑身份，例如 "logger"
-  instance: string;    // 运行时实例，例如 "logger-7f92"
-}
-```
+**`Identity`** —— 三层身份，MUST NOT 承载版本。
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `domain` | string | 是 | 命名域，例如 `com.example` |
+| `id` | string | 是 | 逻辑身份，例如 `logger` |
+| `instance` | string | 是 | 运行时实例，例如 `logger-7f92` |
 
 ### 6.2 语义
 
@@ -265,25 +267,29 @@ interface Identity {
 
 ### 7.1 定义
 
-```typescript
-interface Capability {
-  name: string;
-  version: string;              // SemVer
-  contract?: ContractRef;
-  constraints?: Constraint[];
-}
+**`Capability`**
 
-interface ContractRef {
-  name: string;
-  version: string;
-  schema?: unknown;
-}
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `name` | string | 是 | 能力名 |
+| `version` | string | 是 | SemVer |
+| `contract` | `ContractRef` | 否 | 可选上下文 |
+| `constraints` | `Constraint` 列表 | 否 | 匹配约束，语义见 `C-7` |
 
-interface Constraint {
-  kind: string;
-  value: unknown;
-}
-```
+**`ContractRef`**
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `name` | string | 是 | — |
+| `version` | string | 是 | — |
+| `schema` | 任意值 | 否 | 契约描述；本协议不规定其格式 |
+
+**`Constraint`**
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `kind` | string | 是 | 约束种类 |
+| `value` | 任意值 | 是 | 约束值；匹配规则见 `C-7` |
 
 ### 7.2 语义
 
@@ -300,13 +306,13 @@ Capability **不等于** method list、RPC endpoint、HTTP route、函数签名�
 
 ### 7.4 CapabilityRef
 
-```typescript
-interface CapabilityRef {
-  plugin: Identity;
-  name: string;
-  version: string;
-}
-```
+**`CapabilityRef`** —— 对某个 Plugin 暴露的某个 Capability 版本的引用。
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `plugin` | `Identity` | 是 | 暴露该能力的 Plugin |
+| `name` | string | 是 | 能力名 |
+| `version` | string | 是 | SemVer |
 
 **版本 MUST 参与引用。** 同一 Plugin 可以同时暴露 `logging@1.0.0` 与 `logging@2.0.0`。
 
@@ -318,7 +324,7 @@ interface CapabilityRef {
 - **C-4**：Capability MAY 被多个 Plugin 暴露。
 - **C-5**：`CapabilityRef` MUST 包含 `version`。
 - **C-6**：Capability version MUST 参与 Binding identity。
-- **C-7**：`Constraint` 的匹配 MUST 是「`kind` 相等 **且** `value` 结构相等」。
+- **C-7**：`Constraint` 的匹配 MUST 是"`kind` 相等 **且** `value` 结构相等"。
   更丰富的匹配（范围、偏序、谓词）属于 Extension，MUST NOT 混入 Core。
 
 **C-7 的由来**：§7.1 定义了 `Constraint { kind, value }`，§11.1 允许
@@ -336,13 +342,13 @@ interface CapabilityRef {
 
 ### 8.1 定义
 
-```typescript
-interface Plugin {
-  identity: Identity;
-  capabilities: Capability[];   // MAY be empty
-  lifecycle: LifecycleState;
-}
-```
+**`Plugin`**
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `identity` | `Identity` | 是 | 唯一身份 |
+| `capabilities` | `Capability` 列表 | 是 | MAY 为空 |
+| `lifecycle` | `LifecycleState` | 是 | 当前参与状态 |
 
 ### 8.2 语义
 
@@ -373,15 +379,15 @@ EaPP **不要求**它们具有相同的实现形态。
 
 ### 9.1 定义
 
-```typescript
-interface Binding {
-  id: string;
-  from: PluginRef;              // 提供 Capability 的一方
-  to: PluginRef;                // 消费 Capability 的一方
-  capability: CapabilityRef;    // 含 version
-  contract?: ContractRef;
-}
-```
+**`Binding`**
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `id` | string | 是 | Binding 标识 |
+| `from` | `PluginRef` | 是 | 提供 Capability 的一方 |
+| `to` | `PluginRef` | 是 | 消费 Capability 的一方 |
+| `capability` | `CapabilityRef` | 是 | 含 version |
+| `contract` | `ContractRef` | 否 | 可选上下文 |
 
 **Binding 不含命令式 `state` 字段。**
 
@@ -553,29 +559,35 @@ Composition Core 对 `SUSPENDED` 的定义：
 
 ### 11.1 定义
 
-```typescript
-interface Discovery {
-  find(criteria: Criteria, scope: DiscoveryScope): Promise<PluginRef[]>;
-  watch(criteria: Criteria, scope: DiscoveryScope): AsyncIterable<DiscoveryEvent>;
-}
+**`Discovery`** —— 两个操作：
 
-interface Criteria {
-  capability?: string;
-  version?: string;              // SemVer range
-  constraints?: Constraint[];
-  identity?: Partial<Identity>;
-}
-
-interface DiscoveryScope {
-  trustLevel?: 'L0' | 'L1' | 'L2';
-  trustDomain?: string;
-}
-
-interface DiscoveryEvent {
-  type: 'added' | 'removed' | 'changed';
-  plugin: PluginRef;
-}
 ```
+find(criteria, scope)   ->  PluginRef 列表
+watch(criteria, scope)  ->  DiscoveryEvent 流
+```
+
+**`Criteria`**
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `capability` | string | 否 | 能力名 |
+| `version` | string | 否 | SemVer range |
+| `constraints` | `Constraint` 列表 | 否 | 逐条按 `C-7` 匹配 |
+| `identity` | `Identity` 的字段子集 | 否 | 出现的字段相等 |
+
+**`DiscoveryScope`**
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `trustLevel` | `L0` \| `L1` \| `L2` | 否 | 信任分类 |
+| `trustDomain` | string | 否 | 信任域 |
+
+**`DiscoveryEvent`**
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `type` | `added` \| `removed` \| `changed` | 是 | 事件种类（`D-6`） |
+| `plugin` | `PluginRef` | 是 | 事件针对的 Plugin |
 
 ### 11.2 Trust Level 语义
 
@@ -610,7 +622,7 @@ L1 can access L0
 
 - **D-1**：`find` MUST 返回当前 Trust Scope 内可见的 Plugin。
 - **D-2**：`watch` MUST 只对当前 Trust Scope 内的事件触发。
-- **D-3**：Discovery MUST NOT 保证“发现即可组合”。
+- **D-3**：Discovery MUST NOT 保证"发现即可组合"。
 - **D-4**：Discovery MAY 缓存，但 MUST 有失效策略。
 - **D-5**：Discovery MUST NOT 成为 Binding 的替代品。
 - **D-6**：`DiscoveryEvent.type` MUST 是 added / removed / changed 之一。
@@ -642,37 +654,36 @@ Lifecycle
 
 ### 12.2 核心接口
 
-```typescript
-interface CompositionCore {
-  // Discovery
-  find(criteria: Criteria, scope: DiscoveryScope): Promise<PluginRef[]>;
-  watch(criteria: Criteria, scope: DiscoveryScope): AsyncIterable<DiscoveryEvent>;
+**`CompositionCore`** —— 8 个操作：
 
-  // Composition
-  bind(request: BindRequest): Promise<Binding>;
-  unbind(bindingId: string): Promise<void>;
-
-  // Lifecycle
-  activate(plugin: PluginRef): Promise<void>;
-  deactivate(plugin: PluginRef): Promise<void>;
-  suspend(plugin: PluginRef): Promise<void>;
-  resume(plugin: PluginRef): Promise<void>;
-}
-
-interface BindRequest {
-  from: PluginRef;
-  to: PluginRef;
-  capability: CapabilityRef;
-  contract?: ContractRef;
-}
 ```
+find(criteria, scope)     ->  PluginRef 列表
+watch(criteria, scope)    ->  DiscoveryEvent 流
+bind(request)             ->  Binding
+unbind(bindingId)         ->  ()
+activate(plugin)          ->  ()
+deactivate(plugin)        ->  ()
+suspend(plugin)           ->  ()
+resume(plugin)            ->  ()
+```
+
+**`BindRequest`**
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `from` | `PluginRef` | 是 | 提供 Capability 的一方 |
+| `to` | `PluginRef` | 是 | 消费 Capability 的一方 |
+| `capability` | `CapabilityRef` | 是 | 要建立关系的 Capability |
+| `contract` | `ContractRef` | 否 | 可选上下文 |
 
 ### 12.3 高阶操作（非 Core Primitive）
 
-```typescript
-replace(old: PluginRef, next: PluginRef): Promise<void>;
-rewire(bindingId: string, next: CapabilityRef): Promise<void>;
 ```
+replace(old, next)              ->  ()
+rewire(bindingId, next)         ->  ()
+```
+
+高阶操作由其他操作组合而成，MUST NOT 引入新的语义。
 
 ### 12.4 Composition Control vs Lifecycle Control
 
@@ -698,12 +709,12 @@ rewire(bindingId: string, next: CapabilityRef): Promise<void>;
 
 ### 13.1 Composition Core 只承认 ChannelRef
 
-```typescript
-interface ChannelRef {
-  id: string;
-  binding: string;
-}
-```
+**`ChannelRef`** —— Composition Core 唯一可观察的 Channel 形态。
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `id` | string | 是 | Channel 标识 |
+| `binding` | string | 是 | 派生它的 Binding 的 `id` |
 
 ### 13.2 不属于 Composition Core 的 Channel 属性
 
@@ -759,13 +770,15 @@ EaPP
 
 ### 15.1 定义
 
-```typescript
-interface BootstrapRuntime {
-  createIdentity(seed: unknown): Promise<Identity>;
-  loadFirstPlugin(ref: PluginRef): Promise<Plugin>;
-  provideInitialDiscovery(): Discovery;
-}
+**`BootstrapRuntime`** —— 三个操作：
+
 ```
+createIdentity(seed)        ->  Identity
+loadFirstPlugin(ref)        ->  Plugin
+provideInitialDiscovery()   ->  Discovery
+```
+
+`seed` 的取值由实现定义，本协议不规定其形态。
 
 ### 15.2 最小原则
 
@@ -834,28 +847,33 @@ Bootstrap Runtime MUST 尽可能小。MUST NOT 承担 Composition Core / Interac
 
 ## 18. 错误模型
 
-```typescript
-type EappErrorCode =
-  | 'EAPP_IDENTITY_INVALID'
-  | 'EAPP_IDENTITY_DUPLICATE'
-  | 'EAPP_CAPABILITY_NOT_FOUND'
-  | 'EAPP_CAPABILITY_NOT_EXPOSED'
-  | 'EAPP_PLUGIN_NOT_FOUND'
-  | 'EAPP_PLUGIN_INACTIVE'
-  | 'EAPP_BINDING_INVALID'
-  | 'EAPP_BINDING_DUPLICATE'
-  | 'EAPP_BINDING_CLOSED'
-  | 'EAPP_LIFECYCLE_INVALID'
-  | 'EAPP_DISCOVERY_SCOPE_INVALID'
-  | 'EAPP_UNSUPPORTED'
-  | 'EAPP_INTERNAL';
+**`EappError`** —— 三层共用的错误对象。
 
-interface EappError {
-  code: string;
-  message: string;
-  details?: unknown;
-  retryable?: boolean;
-}
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `code` | string | 是 | 错误码，取值范围见附录 D |
+| `message` | string | 是 | 面向人的说明 |
+| `details` | 任意值 | 否 | 附加上下文，形态由产生方定义 |
+| `retryable` | boolean | 否 | 重试是否有意义；缺省 `false` |
+
+错误的构造 MUST 在实现内只定义一次，三层共用。若各层分别声明一个同名结构而不定义如何构造它，错误的产生将无从成立。
+
+本层贡献的错误码：
+
+```text
+EAPP_IDENTITY_INVALID
+EAPP_IDENTITY_DUPLICATE
+EAPP_CAPABILITY_NOT_FOUND
+EAPP_CAPABILITY_NOT_EXPOSED
+EAPP_PLUGIN_NOT_FOUND
+EAPP_PLUGIN_INACTIVE
+EAPP_BINDING_INVALID
+EAPP_BINDING_DUPLICATE
+EAPP_BINDING_CLOSED
+EAPP_LIFECYCLE_INVALID
+EAPP_DISCOVERY_SCOPE_INVALID
+EAPP_UNSUPPORTED
+EAPP_INTERNAL
 ```
 
 ---
@@ -968,22 +986,21 @@ E = Bindings
 
 ### 22.1 定义
 
-```typescript
-type ChannelMode = 'request' | 'event' | 'stream' | 'state';
-type DeliveryGuarantee = 'at-most-once' | 'at-least-once';
-type ChannelState = 'OPEN' | 'ACTIVE' | 'DRAINING' | 'CLOSED';
+三种取值域：
 
-interface ChannelRef {          // Composition Core 唯一可见的部分
-  id: string;
-  binding: string;
-}
+| 名称 | 取值 |
+|---|---|
+| `ChannelMode` | `request` \| `event` \| `stream` \| `state` |
+| `DeliveryGuarantee` | `at-most-once` \| `at-least-once` |
+| `ChannelState` | `OPEN` \| `ACTIVE` \| `DRAINING` \| `CLOSED` |
 
-interface Channel extends ChannelRef {
-  mode: ChannelMode;
-  delivery: DeliveryGuarantee;
-  state: ChannelState;
-}
-```
+**`Channel`** —— 在 `ChannelRef`（§13.1）之上增加三个字段：
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `mode` | `ChannelMode` | 是 | 交互模式；创建时显式指定（`CC-3`） |
+| `delivery` | `DeliveryGuarantee` | 是 | 投递保证；省略时的推导见 `CC-4` |
+| `state` | `ChannelState` | 是 | 生命周期状态 |
 
 ### 22.2 生命周期
 
@@ -1046,32 +1063,38 @@ CC-2  Binding 进入 DORMANT 时，Channel MUST 进入 DRAINING；
 
 三种消息传递模式各自有一个冻结的信封。它们属于本层，上层 MUST 使用它们而不得自创形状。
 
-```typescript
-interface RequestMessage {
-  correlationId: string;
-  operation: string;
-  payload: unknown;
-  deadline?: number;            // Unix ms
-}
+**`RequestMessage`**
 
-interface ResponseMessage {
-  correlationId: string;
-  ok: boolean;
-  result?: unknown;
-  error?: { code: string; message: string; details?: unknown; retryable?: boolean };
-}
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `correlationId` | string | 是 | 关联标识，应答按它配对（`RQ-1`） |
+| `operation` | string | 是 | 被请求的操作名 |
+| `payload` | 任意值 | 是 | 请求体 |
+| `deadline` | number | 否 | 截止时间，Unix 毫秒 |
 
-interface EventMessage {
-  topic: string;
-  payload: unknown;
-  headers?: Record<string, unknown>;
-}
+**`ResponseMessage`**
 
-interface StreamMessage {
-  cursor: Cursor;               // 全局单调递增
-  payload: unknown;
-}
-```
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `correlationId` | string | 是 | 与请求相同 |
+| `ok` | boolean | 是 | 成功与否 |
+| `result` | 任意值 | 否 | `ok` 为真时的结果 |
+| `error` | `EappError` | 否 | `ok` 为假时的错误 |
+
+**`EventMessage`**
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `topic` | string | 是 | 事件主题 |
+| `payload` | 任意值 | 是 | 事件体 |
+| `headers` | 字符串到任意值的映射 | 否 | 附加头部 |
+
+**`StreamMessage`**
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `cursor` | `Cursor` | 是 | 该消息在 Channel 内的位置；全局单调递增 |
+| `payload` | 任意值 | 是 | 消息体 |
 
 实现 MAY 在信封上附加自己的字段（例如方向判别符、调用方身份），
 但 §23.1 已列出的字段 MUST NOT 被改名或改义。
@@ -1127,15 +1150,18 @@ DL-6  创建 stream / state Channel 时指定 at-most-once MUST 返回 EAPP_DELI
 
 ## 25. Lease
 
-```typescript
-interface Lease {
-  leaseId: string;
-  cursor: Cursor;
-  expiresAt: number;            // Unix ms
-  ack(): Promise<void>;
-  nack(): Promise<void>;
-  renew(ttl: number): Promise<void>;
-}
+**`Lease`** —— 对某个位置的一次认领。
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `leaseId` | string | 是 | 认领标识 |
+| `cursor` | `Cursor` | 是 | 被认领的位置 |
+| `expiresAt` | number | 是 | 到期时间，Unix 毫秒 |
+
+```
+ack()         ->  ()
+nack()        ->  ()
+renew(ttl)    ->  ()
 ```
 
 ```
@@ -1154,22 +1180,24 @@ L-7  过期的 Lease MUST NOT 影响新 Lease。
 
 ### 26.1 定义
 
-```typescript
-type Cursor = string;           // 不透明字符串，在 Channel 内全局有序
+**`Cursor`** —— 一个不透明字符串，在 Channel 内全局有序。它的字面形式由实现定义，消费者 MUST NOT 解析它。
 
-interface CursorState {
-  cursor: Cursor;
-  pending: Cursor[];            // 已收到未 ack
-}
-```
+**`CursorState`**
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `cursor` | `Cursor` | 是 | 当前位置 |
+| `pending` | `Cursor` 列表 | 是 | 已收到但未 ack 的位置 |
 
 ### 26.2 锚点
 
-位置参数需要同时表达"字面锚点"与"具体位置"，因此引入锚点联合：
+位置参数需要同时表达"字面锚点"与"具体位置"，因此引入 `CursorAnchor`：
 
-```typescript
-type CursorAnchor = 'earliest' | 'latest' | Cursor;
-```
+| 取值 | 语义 |
+|---|---|
+| `earliest` | Channel 中仍可服务的最早位置 |
+| `latest` | Channel 当前头位置 |
+| 一个 `Cursor` 值 | 该具体位置 |
 
 **解析规则（MUST，消除 `'earliest'` 与 `Cursor` 的类型歧义）**：
 
@@ -1235,30 +1263,35 @@ nack()   MUST NOT 推进 cursor；该项回到可用，并在下一次迭代重�
 
 ### 27.1 定义
 
-```typescript
-type SubscriptionMode =
-  | 'exclusive'    // 默认。每个订阅持有独立 cursor，收到全部匹配项
-  | 'group';       // 同 group 的订阅共享一个 cursor，竞争消费
+**`SubscriptionMode`**
 
-type SubscriptionState = 'ACTIVE' | 'SUSPENDED' | 'CLOSED';
+| 取值 | 语义 |
+|---|---|
+| `exclusive` | 默认。每个订阅持有独立 cursor，收到全部匹配项 |
+| `group` | 同 group 的订阅共享一个 cursor，竞争消费 |
 
-interface SubscriptionOptions {
-  mode?: SubscriptionMode;       // 默认 'exclusive'
-  group?: string;                // mode === 'group' 时 MUST 指定
-  cursor?: CursorAnchor;         // 默认 'latest'
-}
+`SubscriptionState` 的取值为 `ACTIVE` \| `SUSPENDED` \| `CLOSED`。
 
-interface Subscription<T> extends AsyncIterable<T> {
-  readonly id: string;
-  readonly channel: string;
-  readonly mode: SubscriptionMode;
-  readonly cursor: Cursor;       // MUST 非 undefined（见 SUB-9）
-  readonly state: SubscriptionState;
-  suspend(): Promise<void>;
-  resume(): Promise<void>;
-  close(): Promise<void>;
-}
-```
+**`SubscriptionOptions`**
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `mode` | `SubscriptionMode` | 否 | 默认 `exclusive` |
+| `group` | string | 否 | `mode` 为 `group` 时 MUST 指定 |
+| `cursor` | `CursorAnchor` | 否 | 默认 `latest` |
+
+**`Subscription`** —— 一个消费单元 `T` 的序列。
+
+| 成员 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `id` | string | 是 | 订阅标识 |
+| `channel` | string | 是 | 所属 Channel |
+| `mode` | `SubscriptionMode` | 是 | 消费模式 |
+| `cursor` | `Cursor` | 是 | 当前位置；MUST 非 undefined（`SUB-9`） |
+| `state` | `SubscriptionState` | 是 | 订阅状态 |
+| `suspend()` | 操作 | 是 | 停止投递 |
+| `resume()` | 操作 | 是 | 从当前位置继续 |
+| `close()` | 操作 | 是 | 终止序列 |
 
 `T` MUST 是携带 `AckContext` 的消费单元。对 State 模式，`T` 即 State Mode 的 `StateUpdateEvent`。
 
@@ -1303,30 +1336,28 @@ ConsumerGroup 则规定这份所有权**在哪一组消费者之间竞争**。
 
 ### 28.2 定义
 
-```typescript
-interface ConsumerGroup {
-  readonly id: string;
-  readonly name: string;         // 在同一 Channel 内唯一
-  readonly channel: string;
-  readonly cursor: Cursor;       // 组共享位置，MUST 唯一
-  readonly memberCount: number;
-  close(): Promise<void>;
-}
+**`ConsumerGroup`**
 
-interface ConsumerGroupOptions {
-  name: string;
-  /**
-   * 一个成员可以持有一次 claim 多久；超时后该位置归还给组。
-   * 默认 30_000 ms。MUST > 0。
-   */
-  claimTtlMs?: number;
-}
-```
+| 成员 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `id` | string | 是 | 组标识 |
+| `name` | string | 是 | 在同一 Channel 内唯一 |
+| `channel` | string | 是 | 所属 Channel |
+| `cursor` | `Cursor` | 是 | 组共享位置，MUST 唯一 |
+| `memberCount` | number | 是 | 当前成员数 |
+| `close()` | 操作 | 是 | 关闭组 |
+
+**`ConsumerGroupOptions`**
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `name` | string | 是 | 组名 |
+| `claimTtlMs` | number | 否 | 一个成员可以持有一次 claim 多久；超时后该位置归还给组。默认 30000 ms。MUST 大于 0 |
 
 成员身份通过既有的 `SubscriptionOptions` 表达，不引入新的订阅类型：
 
-```typescript
-await channel.subscribe(pattern, { mode: 'group', group: 'workers' });
+```
+subscribe(channel, pattern, { mode: 'group', group: 'workers' })
 ```
 
 ### 28.3 与 Lease / Cursor 的关系
@@ -1362,11 +1393,11 @@ CG-8  mode === 'group' 的 Subscription MUST 指名同一 Channel 上的一个 C
 
 ## 29. Ack / Nack / NackContext
 
-```typescript
-interface AckContext {
-  ack(): Promise<void>;
-  nack(): Promise<void>;
-}
+**`AckContext`** —— 每个消费单元携带的确认句柄：
+
+```
+ack()    ->  ()
+nack()   ->  ()
 ```
 
 | 操作 | 效果 |
@@ -1388,33 +1419,31 @@ AK-5  对已终结的 AckContext 再次调用 MUST 返回 EAPP_LEASE_CLOSED。
 
 ### 30.1 接口
 
-```typescript
-interface TransportMessage {
-  cursor: Cursor;
-  payload: unknown;
-}
+**`TransportMessage`**
 
-interface Transport {
-  readonly id: string;
-  readonly capabilities: TransportCapabilities;
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `cursor` | `Cursor` | 是 | 该消息在 Channel 内的位置 |
+| `payload` | 任意值 | 是 | 消息体 |
 
-  /** 发送一条消息；Transport 负责分配 cursor。 */
-  send(channel: string, msg: unknown): Promise<Cursor>;
+**`Transport`**
 
-  /** 返回 cursor 之后、匹配 pattern 的消息，按 cursor 升序。 */
-  readAfter(
-    channel: string,
-    cursor: Cursor | undefined,
-    pattern: Pattern,
-  ): Promise<TransportMessage[]>;
+| 成员 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `id` | string | 是 | Transport 标识 |
+| `capabilities` | `TransportCapabilities` | 是 | 能力声明 |
+| `send(channel, msg)` | 操作，结果为 `Cursor` | 是 | 发送一条消息；Transport 负责分配 cursor |
+| `readAfter(channel, cursor, pattern)` | 操作，结果为 `TransportMessage` 列表 | 是 | 返回 cursor 之后、匹配 pattern 的消息，按 cursor 升序 |
+| `close()` | 操作 | 是 | 关闭 |
 
-  close(): Promise<void>;
-}
+**`Pattern`**
 
-type Pattern =
-  | { all: true }
-  | { type: string };
-```
+| 取值 | 语义 |
+|---|---|
+| `{ all: true }` | 匹配全部消息 |
+| `{ type: string }` | 匹配给定类型 |
+
+`readAfter` 的 `cursor` 参数 MAY 为"未提供"，含义见 `TR-6`。
 
 **语义约束**：
 
@@ -1427,21 +1456,18 @@ TR-8  send 返回的 cursor MUST 在该 Channel 内严格大于此前所有 curs
 
 ### 30.2 能力声明
 
-```typescript
-interface TransportCapabilities {
-  persistent: boolean;
-  ordering: 'none' | 'per-source' | 'global';
-  delivery: {
-    atMostOnce: boolean;
-    atLeastOnce: boolean;
-    replay: boolean;
-  };
-  supportsCursor: boolean;
-  supportsLease: boolean;
-  /** 持久化边界的可见范围 */
-  durabilityBoundary: 'process' | 'machine' | 'cluster' | 'global';
-}
-```
+**`TransportCapabilities`**
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `persistent` | boolean | 是 | 是否跨进程存活 |
+| `ordering` | `none` \| `per-source` \| `global` | 是 | 顺序保证的范围 |
+| `delivery` | 见下 | 是 | 投递能力 |
+| `supportsCursor` | boolean | 是 | 是否支持位置 |
+| `supportsLease` | boolean | 是 | 是否支持认领 |
+| `durabilityBoundary` | `process` \| `machine` \| `cluster` \| `global` | 是 | 持久化边界的可见范围 |
+
+`delivery` 的三个字段：`atMostOnce`、`atLeastOnce`、`replay`，均为 boolean。
 
 ### 30.3 能力矩阵
 
@@ -1467,47 +1493,46 @@ TR-9  不支持时 MUST 返回 EAPP_UNSUPPORTED；不支持 cursor 时 MUST 返�
 
 ## 31. 与 Composition Core 的接口
 
-```typescript
-interface CompositionToInteraction {
-  onBindingCreated(binding: Binding): ChannelRef;
-  onBindingActive(binding: Binding): void;
-  onBindingDormant(binding: Binding): void;
-  onBindingClosed(binding: Binding): void;
-}
+**Composition Core → Interaction Layer**（Binding 状态变化时通知）
 
-interface InteractionToComposition {
-  channelRef(id: string): ChannelRef;
-  channelState(id: string): ChannelState;
-}
+```
+onBindingCreated(binding)   ->  ChannelRef
+onBindingActive(binding)    ->  ()
+onBindingDormant(binding)   ->  ()
+onBindingClosed(binding)    ->  ()
+```
+
+**Interaction Layer → Composition Core**
+
+```
+channelRef(id)     ->  ChannelRef
+channelState(id)   ->  ChannelState
 ```
 
 ---
 
 ## 32. Channel 创建路径
 
-本文档的前身只给出 `Channel MUST 由 Binding 派生` 这条原则，
-没有给出可执行的路径；而 State Mode 早期需要一个从裸 `binding` 字符串构造 StateChannel 的办法。
-本节把那条原则补成一条可执行、可检查的路径。
+`Channel MUST 由 Binding 派生`是一条原则；原则需要一条可执行的路径才可检查。State Mode 还需要从一个既有的 `binding` 出发构造 Channel。本节给出这条路径。
 
-```typescript
-interface InteractionLayer {
-  /**
-   * 由 Binding 派生并实例化一个 Channel。
-   * binding MUST 是已存在且未被 CLOSED 的 Binding。
-   */
-  createChannel(request: CreateChannelRequest): Promise<Channel>;
+**`InteractionLayer`**
 
-  channel(id: string): Channel | undefined;
-  channelRef(id: string): ChannelRef;
-  channelState(id: string): ChannelState;
-}
-
-interface CreateChannelRequest {
-  binding: string;              // Binding.id（来自 Composition Core core.bind()）
-  mode: ChannelMode;            // MUST 显式指定（CC-3）
-  delivery?: DeliveryGuarantee; // 省略时按 §24 推导
-}
 ```
+createChannel(request)   ->  Channel
+channel(id)              ->  Channel，不存在时为"未找到"
+channelRef(id)           ->  ChannelRef
+channelState(id)         ->  ChannelState
+```
+
+`createChannel` 的 `binding` MUST 是已存在且未被 CLOSED 的 Binding。
+
+**`CreateChannelRequest`**
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `binding` | string | 是 | `Binding.id`，来自 Composition Core 的 `bind()` |
+| `mode` | `ChannelMode` | 是 | MUST 由调用方显式指定（`CC-3`） |
+| `delivery` | `DeliveryGuarantee` | 否 | 省略时按 §24 推导 |
 
 **规则**：
 
@@ -1526,44 +1551,38 @@ CC-9  一个 Binding MAY 派生多个 Channel，各自 mode 不同。
 **State Channel 的三段式路径**：
 
 ```
-① core.bind({ from, to, capability })            → Binding        （Composition Core）
-② interaction.createChannel({ binding, mode: 'state',
-                              delivery: 'at-least-once' }) → Channel（本层 §32）
-③ state.configure(channel, { conflictPolicy: 'cas', owner }) → StateChannel（State Mode）
+① bind(from, to, capability)                     → Binding        （Composition Core §12.2）
+② createChannel({ binding, mode: 'state',
+                  delivery: 'at-least-once' })   → Channel        （本层 §32）
+③ configure(channel, { conflictPolicy: 'cas',
+                       owner })                  → StateChannel   （State Mode §44.1）
 ```
 
 ---
 
 ## 33. 错误模型
 
-```typescript
-interface EappError {
-  code: string;
-  message: string;
-  details?: unknown;
-  retryable?: boolean;
-}
+错误对象的形状与其构造规则见 §18。各层的 code 联合按层扩展，MUST NOT 重命名或改义既有码。
 
-type EappInteractionErrorCode =
-  | 'EAPP_CHANNEL_INVALID'
-  | 'EAPP_CHANNEL_CLOSED'
-  | 'EAPP_CHANNEL_DRAINING'
-  | 'EAPP_MODE_INVALID'
-  | 'EAPP_DELIVERY_UNSUPPORTED'
-  | 'EAPP_CURSOR_INVALID'
-  | 'EAPP_CURSOR_UNSUPPORTED'
-  | 'EAPP_CURSOR_TOO_OLD'        // 新增（§26.2 规则 6）
-  | 'EAPP_SUBSCRIPTION_INVALID'  // 新增（§27）
-  | 'EAPP_LEASE_EXPIRED'
-  | 'EAPP_LEASE_CLOSED'
-  | 'EAPP_LEASE_CONFLICT'
-  | 'EAPP_TIMEOUT'
-  | 'EAPP_UNSUPPORTED'
-  | 'EAPP_INTERNAL';
+本层贡献的错误码：
+
+```text
+EAPP_CHANNEL_INVALID
+EAPP_CHANNEL_CLOSED
+EAPP_CHANNEL_DRAINING
+EAPP_MODE_INVALID
+EAPP_DELIVERY_UNSUPPORTED
+EAPP_CURSOR_INVALID
+EAPP_CURSOR_UNSUPPORTED
+EAPP_CURSOR_TOO_OLD          日志已压缩到无法定位请求位置（§26.2 规则 6）
+EAPP_SUBSCRIPTION_INVALID    订阅构造参数非法（§27）
+EAPP_LEASE_EXPIRED
+EAPP_LEASE_CLOSED
+EAPP_LEASE_CONFLICT
+EAPP_TIMEOUT                 截止时间到达（§23.1 的 deadline）
+EAPP_UNSUPPORTED
+EAPP_INTERNAL
 ```
-
-错误的构造 MUST 在实现内只定义一次，三层共用；
-各层的 code 联合按层扩展，MUST NOT 重命名或改义既有码。
 
 ---
 
@@ -1669,9 +1688,7 @@ Cursor   = §26.1：消费者已确认消费到的位置
 
 ## 37. Revision
 
-```typescript
-type Revision = string;   // opaque token；在 (Transport, Channel) 内唯一且全序
-```
+**`Revision`** —— 一个不透明标识，在 `(Transport, Channel)` 内唯一且全序。它的字面形式由 Transport 定义。
 
 ### 37.1 语义
 
@@ -1690,16 +1707,16 @@ REV-8  Revision MUST NOT be compared across Transports.
 
 **Consumer MUST NOT 直接比较 Revision 字符串。** 比较 MUST 由 Transport 提供：
 
-```typescript
-compareRevision(a: Revision, b: Revision): number;
-// <0 = a < b；0 = 相等；>0 = a > b
-// 若 a 或 b 不是本 Transport 实例签发的值，MUST 抛 EAPP_REVISION_INVALID（REV-8）
 ```
+compareRevision(a, b)   ->  负数表示 a 在前，0 表示相等，正数表示 a 在后
+```
+
+若 `a` 或 `b` 不是本 Transport 实例签发的值，MUST 返回 `EAPP_REVISION_INVALID`（`REV-8`）。
 
 ### 37.3 分配
 
-```typescript
-nextRevision(channel: string): Promise<Revision>;
+```
+nextRevision(channel)   ->  Revision
 ```
 
 `nextRevision` **预留**一个位置；随后 `writeStateWithRevision` 必须使用它。
@@ -1709,16 +1726,16 @@ nextRevision(channel: string): Promise<Revision>;
 
 ## 38. StateCell
 
-```typescript
-interface StateCell {
-  readonly key: string;
-  readonly revision: Revision;    // 最后一次写入的日志位置
-  readonly value: unknown;        // 可序列化；deleted === true 时 MUST 为 undefined
-  readonly deleted: boolean;      // 逻辑删除标记
-  readonly updatedAt: number;     // Unix ms
-  readonly updatedBy: Identity;   // 最后一次写入者（§6.1）
-}
-```
+**`StateCell`** —— 一个键在某一位置的取值。
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `key` | string | 是 | 键 |
+| `revision` | `Revision` | 是 | 最后一次写入的日志位置 |
+| `value` | 任意值 | 是 | 可序列化；`deleted` 为真时 MUST 为 undefined |
+| `deleted` | boolean | 是 | 逻辑删除标记 |
+| `updatedAt` | number | 是 | 最后一次写入时间，Unix 毫秒 |
+| `updatedBy` | `Identity` | 是 | 最后一次写入者（§6.1） |
 
 ### 38.1 不变量
 
@@ -1747,18 +1764,21 @@ SC-6  get / list MUST 返回已逻辑删除的 cell（deleted === true），
 
 ### 39.1 定义
 
-```typescript
-interface StateUpdate {
-  key: string;
-  value?: unknown;                // 新值；"存在性"按属性存在判定
-  deleted?: boolean;              // 逻辑删除；出现时 MUST 为 true
-  expectedRevision: ExpectedRevision;
-  actor?: Identity;               // 省略时回落到 Channel.owner
-}
+**`StateUpdate`**
 
-type ExpectedRevision = Revision | null;
-// null       → key MUST NOT have ever existed
-// Revision   → key MUST exist and its revision MUST match exactly
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `key` | string | 是 | 键 |
+| `value` | 任意值 | 否 | 新值；"存在性"按属性存在判定 |
+| `deleted` | boolean | 否 | 逻辑删除；出现时 MUST 为 true |
+| `expectedRevision` | `Revision` 或 `null` | 是 | CAS 的期望位置，取值见下 |
+| `actor` | `Identity` | 否 | 省略时回落到 Channel 的 owner |
+
+`expectedRevision` 的两种取值：
+
+```
+null       → key MUST NOT 曾经存在
+Revision   → key MUST 存在，且其 revision MUST 精确匹配
 ```
 
 ### 39.2 CAS 语义
@@ -1869,36 +1889,36 @@ DEL-6  delete followed by set MUST increment the revision and clear the deleted 
 
 ### 41.1 定义
 
-```typescript
-interface StateWatcher extends Subscription<StateUpdateEvent> {
-  readonly kind: 'state';              // 标识 State Mode
-  readonly mode: SubscriptionMode;     // §27.1，继承，MUST NOT 被覆盖为 'state'
-  readonly pattern: StatePattern;
-}
+**`StateWatcher`** —— 在 `Subscription` 之上收窄为状态变更。
 
-interface StateUpdateEvent extends AckContext {
-  readonly type: 'set' | 'deleted';
-  readonly key: string;
-  readonly revision: Revision;
-  readonly value?: unknown;            // 当且仅当 type === 'set'
-}
-```
+| 成员 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `kind` | `state` | 是 | 标识 State Mode |
+| `mode` | `SubscriptionMode` | 是 | §27.1 的取值；MUST NOT 被覆盖为 `state` |
+| `pattern` | `StatePattern` | 是 | 该 watcher 观察的范围 |
+
+**`StateUpdateEvent`** —— 每个变更同时是一个可确认的消费单元（`AckContext`）。
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `type` | `set` \| `deleted` | 是 | 变更种类 |
+| `key` | string | 是 | 键 |
+| `revision` | `Revision` | 是 | 变更位置 |
+| `value` | 任意值 | 否 | 当且仅当 `type` 为 `set` |
 
 ### 41.2 消费接口
 
-```typescript
-for await (const update of watcher) {
-  try {
-    apply(update);
-    await update.ack();      // 无参数 —— Interaction Layer AckContext
-  } catch {
-    await update.nack();     // 无参数 —— Interaction Layer AckContext
-  }
-}
+消费方按序列取得变更，逐个确认：
+
+```
+循环取得 update：
+  应用 update
+  成功  → 确认 update（无参数）
+  失败  → 拒绝 update（无参数）
 ```
 
-**MUST NOT** 写成 `watcher.ack(update)`。
-**MUST NOT** 只提供 `ack()` —— 只提供 ack 的类型不是合法的 Interaction Layer `AckContext`。
+**MUST NOT** 把确认写成 `确认(watcher, update)` 这种由 watcher 代收的形式。
+**MUST NOT** 只提供确认而不提供拒绝 —— 只提供其一的类型不是合法的 `AckContext`。
 
 ### 41.3 ack / nack 语义
 
@@ -1908,19 +1928,19 @@ nack()  MUST NOT 推进 cursor；该变更 MUST 在下一次迭代重新投递
 ```
 
 **MUST NOT 引入 `pending` 结构。** "只推进到第一个未 ack 项之前"与 §26.4
-「ack 一个更新的 cursor 意味着放弃中间未 ack 的消息」直接冲突。
+"ack 一个更新的 cursor 意味着放弃中间未 ack 的消息"直接冲突。
 CR-3 禁止的是**隐式**跳过；显式 ack 更靠后的位置并放弃中间项是允许的。
 
 ### 41.4 初始位置
 
-```typescript
-interface WatchOptions {
-  cursor?: CursorAnchor;         // 默认 'latest'
-  mode?: SubscriptionMode;       // 默认 'exclusive'
-  group?: string;                // mode === 'group' 时 MUST 指定
-  pollIntervalMs?: number;       // 无 waitForChange 时的轮询间隔，默认 50，MUST > 0
-}
-```
+**`WatchOptions`**
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `cursor` | `CursorAnchor` | 否 | 默认 `latest` |
+| `mode` | `SubscriptionMode` | 否 | 默认 `exclusive` |
+| `group` | string | 否 | `mode` 为 `group` 时 MUST 指定 |
+| `pollIntervalMs` | number | 否 | 无 `waitForChange` 时的轮询间隔，默认 50，MUST 大于 0 |
 
 ```
 1. cursor 省略          → 等价于 'latest'
@@ -1931,18 +1951,18 @@ interface WatchOptions {
 6. 因此 watch() 返回后 watcher.cursor MUST 非 undefined（Interaction Layer SUB-9）
 ```
 
-把 cursor 留成 `undefined`、指望"Transport 在首次迭代时提供当前位置"，
-会使 SW-1 的 `expect(watcher.cursor).toBeDefined()` **必然失败**：
+把 cursor 留成"尚未解析"、指望"Transport 在首次迭代时提供当前位置"，
+会使 `SW-1` 与 `SUB-9` 的要求必然无法满足：
 锚点在 `watch()` 返回之前已经可以求值，不存在延迟解析的理由。
 
 ### 41.5 变更发现
 
-```typescript
-/** 可选。阻塞直到 cursor 之后出现变更或 signal 中止。 */
-waitForChange?(channel: string, cursor: Cursor | undefined, signal?: AbortSignal): Promise<void>;
+```
+waitForChange(channel, cursor, signal)   ->  ()
 ```
 
-Transport 未实现时，StateWatcher MUST 以 `WatchOptions.pollIntervalMs` 轮询。
+此操作**可选**：阻塞直到 `cursor` 之后出现变更，或 `signal` 被中止。
+Transport 不提供它时，StateWatcher MUST 以 `WatchOptions.pollIntervalMs` 轮询。
 **MUST NOT 无等待忙轮询。**
 
 ### 41.6 不变量
@@ -1966,12 +1986,13 @@ SW-12 ack() / nack() invoked after close() MUST be a no-op and MUST NOT throw.
 
 ## 42. StatePattern
 
-```typescript
-type StatePattern =
-  | { readonly key: string }        // 精确匹配
-  | { readonly prefix: string }     // 前缀匹配
-  | { readonly all: true };         // 全部
-```
+**`StatePattern`**
+
+| 取值 | 语义 |
+|---|---|
+| `{ key: string }` | 精确匹配 |
+| `{ prefix: string }` | 前缀匹配 |
+| `{ all: true }` | 全部 |
 
 **校验（MUST 逐字段，MUST NOT 只检查属性名）**：
 
@@ -1991,15 +2012,15 @@ type StatePattern =
 
 ### 43.1 定义
 
-```typescript
-interface StateSnapshot {
-  readonly channel: string;
-  readonly pattern: StatePattern;   // 本快照的选择范围
-  readonly cells: StateCell[];
-  readonly maxRevision: Revision;
-  readonly takenAt: number;
-}
-```
+**`StateSnapshot`**
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `channel` | string | 是 | 快照来源 Channel |
+| `pattern` | `StatePattern` | 是 | 本快照的选择范围 |
+| `cells` | `StateCell` 列表 | 是 | 范围内的 cell |
+| `maxRevision` | `Revision` | 是 | 读取 cells **之前**观察到的 Channel 头位置 |
+| `takenAt` | number | 是 | 生成时间，Unix 毫秒 |
 
 ### 43.2 一致性（去循环化）
 
@@ -2009,16 +2030,16 @@ snapshot MUST 按此顺序执行：
   ② cells := listState(channel, pattern)，过滤到 revision <= P
   ③ maxRevision := P
 
-MUST NOT 用 reduce 从 cells 推导 maxRevision。
+MUST NOT 从 cells 归约推导 maxRevision。
 ```
 
 **理由**：若 `cells` 与 `maxRevision` 来自同一次读取，`cell.revision <= maxRevision`
-是**恒真式**，Transport 可以返回任意不一致的 cell 集合而"满足" SNAP-1。
+是**恒真式**，Transport 可以返回任意不一致的 cell 集合而"满足" `SNAP-1`。
 把 head 的读取放到 cell 读取**之前**，打开一个真实的竞态窗口，
 使该不变量**可被违反、因而可被测试**。
 
-以 `'' as Revision` 作归约种子同样不可用：零匹配时 `maxRevision === ''` ——
-一个没有任何 Transport 能比较的非法值，违反 SNAP-2。
+以"空值"作归约种子同样不可用：零匹配时 `maxRevision` 会是一个没有任何 Transport
+能比较的非法值，违反 `SNAP-2`。
 
 ```
 SNAP-1  Every returned cell's revision MUST be <= maxRevision, and maxRevision MUST be
@@ -2029,10 +2050,11 @@ SNAP-3  snapshot MUST NOT claim linearizability.
 
 ### 43.3 Restore
 
-```typescript
-restore(snapshot: StateSnapshot, options?: { mode?: 'merge' | 'replace' }): Promise<void>;
-// 默认 'merge'
 ```
+restore(snapshot, options)   ->  ()
+```
+
+`options.mode` 取 `merge` 或 `replace`，默认 `merge`。
 
 | 模式 | 语义 |
 |---|---|
@@ -2049,7 +2071,7 @@ SNAP-9  restore MUST reject a snapshot whose channel differs from the target:
         EAPP_SNAPSHOT_INVALID.
 ```
 
-**`restore` 只写不删**，与 API-8「MUST overwrite current state」的两种读法并存；
+**`restore` 只写不删**，与 API-8"MUST overwrite current state"的两种读法并存；
 显式 `mode` 消除该歧义。
 
 ### 43.4 Transport 层不再提供 restore
@@ -2069,22 +2091,12 @@ restore MUST 在 StateChannel 层唯一实现，由 nextRevision + writeStateWit
 
 ### 44.1 创建
 
-```typescript
-// ① Composition Core Composition Core
-const binding: Binding = await core.bind({ from, to, capability });
-
-// ② Interaction Layer Interaction Layer
-const channel: Channel = await interaction.createChannel({
-  binding: binding.id,
-  mode: 'state',
-  delivery: 'at-least-once',
-});
-
-// ③ State Mode State Mode
-const ch: StateChannel = await state.configure(channel, {
-  conflictPolicy: 'cas',
-  owner: identity,
-});
+```
+① bind(from, to, capability)                          ->  Binding        （Composition Core §12.2）
+② createChannel({ binding, mode: 'state',
+                  delivery: 'at-least-once' })        ->  Channel        （§32）
+③ configure(channel, { conflictPolicy: 'cas',
+                       owner })                       ->  StateChannel   （本节）
 ```
 
 ```
@@ -2098,25 +2110,24 @@ configure MUST 校验：
 
 ### 44.2 接口
 
-```typescript
-interface StateChannel extends Channel {
-  readonly mode: 'state';
+**`StateChannel`** —— 在 `Channel` 之上增加状态操作：
 
-  get(key: string): Promise<StateCell | null>;
-  list(pattern: StatePattern): Promise<StateCell[]>;
-  set(update: StateUpdate): Promise<Revision>;
-  delete(key: string, expectedRevision: ExpectedRevision, options?: { actor?: Identity }): Promise<Revision>;
-  watch(pattern: StatePattern, options?: WatchOptions): Promise<StateWatcher>;
-  snapshot(pattern: StatePattern): Promise<StateSnapshot>;
-  restore(snapshot: StateSnapshot, options?: { mode?: 'merge' | 'replace' }): Promise<void>;
-}
+```
+get(key)                                  ->  StateCell 或 null
+list(pattern)                             ->  StateCell 列表
+set(update)                               ->  Revision
+delete(key, expectedRevision, options)    ->  Revision
+watch(pattern, options)                   ->  StateWatcher
+snapshot(pattern)                         ->  StateSnapshot
+restore(snapshot, options)                ->  ()
 ```
 
-> **`watch` 返回 Promise。** 契约同时要求初始 cursor 是**具体位置**（`SUB-9` / `SW-9`），
-> 而解析 `'latest'` 需要读取 Channel head，这是一次异步读取。
-> 同步返回只能交出一个未解析的 cursor，使 SW-1 的
-> `expect(watcher.cursor).toBeDefined()` **无法通过**。
-> 二者不可兼得；本版本选择异步，以换取一个可满足的 `SUB-9`。
+`delete` 的 `options` 与 `restore` 的 `options` 各自 MAY 省略，省略时的含义见 §43.3 与 §40。
+
+> **`watch` 的结果在返回之前完成解析。** 契约同时要求初始 cursor 是**具体位置**（`SUB-9` / `SW-9`），
+> 而解析 `'latest'` 需要读取 Channel 头位置，这是一次读取操作。
+> 若返回时 cursor 尚未解析，`SW-1` 与 `SUB-9` 的要求将无法满足。
+> 二者不可兼得；本版本选择在返回前完成解析。
 
 **StateChannel 是 Channel 的收窄视图，MUST NOT 是包装类型**（IX-6）。
 `id` / `binding` / `delivery` / `state` 直接来自被包装的 Channel。
@@ -2129,7 +2140,7 @@ interface StateChannel extends Channel {
 | `list` | `StateCell[]`，按 `key` 字典序稳定排序，含已删除 cell |
 | `set` | 新 revision |
 | `delete` | 操作后该 key 的当前 revision（§40.4） |
-| `watch` | `Promise<StateWatcher>`（见 §44.2 注） |
+| `watch` | `StateWatcher`（解析在返回之前完成，见 §44.2） |
 | `snapshot` | read-consistent 快照 |
 | `restore` | `void` |
 
@@ -2143,7 +2154,7 @@ API-2  list MUST return all matching StateCells, including logically-deleted one
 API-3  set MUST return the new revision.
 API-4  delete MUST NOT reset the revision counter; it MUST return the key's current
        revision after the operation.
-API-5  watch MUST return a Interaction Layer-compatible Subscription (awaited; see §44.2).
+API-5  watch MUST return an Interaction Layer-compatible Subscription..
 API-6  snapshot MUST be read-consistent.
 API-7  snapshot MUST include maxRevision.
 API-8  restore MUST overwrite the state covered by snapshot.pattern.
@@ -2152,12 +2163,12 @@ API-9  StatePattern MUST be a union type validated per §42.
 
 ### 44.5 冲突策略（冻结）
 
-```typescript
-interface StateChannelConfig {
-  conflictPolicy: 'cas';        // Core 只有这一种
-  owner: Identity;
-}
-```
+**`StateChannelConfig`**
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `conflictPolicy` | `cas` | 是 | Core 只有这一种 |
+| `owner` | `Identity` | 是 | 该 Channel 的归属；`actor` 省略时的回落对象 |
 
 ```
 CF-1  Core MUST only support the CAS conflict policy.
@@ -2186,33 +2197,34 @@ CF-5  StateChannel MUST extend Channel；MUST NOT be a wrapper type.
 
 ## 45. StateTransport
 
-```typescript
-interface StateChange {
-  readonly channel: string;
-  readonly revision: Revision;      // 日志位置
-  readonly key: string;
-  readonly type: 'set' | 'deleted';
-  readonly value?: unknown;         // 当且仅当 type === 'set'
-}
+**`StateChange`** —— 日志中的一条变更记录。
 
-interface StateTransport extends Transport {
-  readonly capabilities: StateTransportCapabilities;
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `channel` | string | 是 | 所属 Channel |
+| `revision` | `Revision` | 是 | 日志位置 |
+| `key` | string | 是 | 键 |
+| `type` | `set` \| `deleted` | 是 | 变更种类 |
+| `value` | 任意值 | 否 | 当且仅当 `type` 为 `set` |
 
-  getState(channel: string, key: string): Promise<StateCell | null>;
-  listState(channel: string, pattern: StatePattern): Promise<StateCell[]>;
-  head(channel: string): Promise<Revision>;
+**`StateTransport`** —— 在 `Transport`（§30.1）之上增加状态操作：
 
-  setStateWithCAS(channel: string, update: StateUpdate, actor: Identity): Promise<Revision>;
-  deleteStateWithCAS(channel: string, key: string, expectedRevision: ExpectedRevision, actor: Identity): Promise<Revision>;
+```
+getState(channel, key)                              ->  StateCell 或 null
+listState(channel, pattern)                         ->  StateCell 列表
+head(channel)                                       ->  Revision
 
-  readChangesAfter(channel: string, cursor: Cursor | undefined, pattern: StatePattern): Promise<StateChange[]>;
+setStateWithCAS(channel, update, actor)             ->  Revision
+deleteStateWithCAS(channel, key, expectedRevision, actor)  ->  Revision
 
-  nextRevision(channel: string): Promise<Revision>;
-  compareRevision(a: Revision, b: Revision): number;
-  writeStateWithRevision(channel: string, key: string, value: unknown, deleted: boolean, revision: Revision, actor: Identity): Promise<void>;
+readChangesAfter(channel, cursor, pattern)          ->  StateChange 列表
 
-  waitForChange?(channel: string, cursor: Cursor | undefined, signal?: AbortSignal): Promise<void>;
-}
+nextRevision(channel)                               ->  Revision
+compareRevision(a, b)                               ->  负数 / 0 / 正数
+writeStateWithRevision(channel, key, value,
+                       deleted, revision, actor)    ->  ()
+
+waitForChange(channel, cursor, signal)              ->  ()     （可选）
 ```
 
 **语义约束**：
@@ -2240,16 +2252,16 @@ TS-15  nextRevision MUST 返回一个严格大于当前 head 的位置。
 
 ### 46.1 能力声明
 
-```typescript
-interface StateTransportCapabilities extends TransportCapabilities {
-  supportsState: boolean;
-  supportsStateRevision: boolean;
-  supportsStateWatch: boolean;
-  supportsStateSnapshot: boolean;
-  stateConsistency: 'strong' | 'eventual';
-  stateRetention: { kind: 'unbounded' } | { kind: 'window'; entries: number };
-}
-```
+**`StateTransportCapabilities`** —— 在 `TransportCapabilities`（§30.2）之上增加：
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `supportsState` | boolean | 是 | 是否支持状态操作 |
+| `supportsStateRevision` | boolean | 是 | 是否支持可全序比较的位置 |
+| `supportsStateWatch` | boolean | 是 | 是否支持观察 |
+| `supportsStateSnapshot` | boolean | 是 | 是否支持快照与恢复 |
+| `stateConsistency` | `strong` \| `eventual` | 是 | 一致性强度 |
+| `stateRetention` | `{ kind: 'unbounded' }` 或 `{ kind: 'window', entries: number }` | 是 | 日志保留策略 |
 
 命名与 Interaction Layer 对齐（`supports*`，非 `provides*`）。
 
@@ -2259,7 +2271,7 @@ interface StateTransportCapabilities extends TransportCapabilities {
 |---|---|
 | `supportsState` | `get`/`list`/`set`/`delete`/`snapshot`/`restore`/`watch` 全部抛 `EAPP_STATE_UNSUPPORTED` |
 | `supportsStateRevision` | `set`/`delete`/`restore` 抛 `EAPP_STATE_UNSUPPORTED`（CAS 不可能成立）；`get`/`list` 仍可用 |
-| `supportsStateWatch` | `watch()` 以 `EAPP_WATCH_UNSUPPORTED` 失败 —— 同步 API 同步抛，返回 Promise 的 API 拒绝（见 §44.2） |
+| `supportsStateWatch` | `watch()` 以 `EAPP_WATCH_UNSUPPORTED` 失败 —— 在能立即报告的时刻报告（见 §44.2） |
 | `supportsStateSnapshot` | `snapshot()` / `restore()` 抛 `EAPP_UNSUPPORTED` |
 
 ```
@@ -2314,18 +2326,19 @@ CAS 的正确性建立在全序之上，故不存在该豁免，能力标志相�
 
 ## 47. 错误模型
 
-```typescript
-type EappStateErrorCode =
-  | 'EAPP_STATE_UNSUPPORTED'
-  | 'EAPP_WATCH_UNSUPPORTED'
-  | 'EAPP_STATE_KEY_INVALID'
-  | 'EAPP_STATE_KEY_NOT_FOUND'
-  | 'EAPP_STATE_VALUE_INVALID'
-  | 'EAPP_STATE_PATTERN_INVALID'
-  | 'EAPP_STATE_ACTOR_REQUIRED'
-  | 'EAPP_REVISION_INVALID'
-  | 'EAPP_REVISION_CONFLICT'
-  | 'EAPP_SNAPSHOT_INVALID';
+本层贡献的错误码：
+
+```text
+EAPP_STATE_UNSUPPORTED
+EAPP_WATCH_UNSUPPORTED
+EAPP_STATE_KEY_INVALID
+EAPP_STATE_KEY_NOT_FOUND
+EAPP_STATE_VALUE_INVALID
+EAPP_STATE_PATTERN_INVALID
+EAPP_STATE_ACTOR_REQUIRED
+EAPP_REVISION_INVALID
+EAPP_REVISION_CONFLICT
+EAPP_SNAPSHOT_INVALID
 ```
 
 **复用的 Composition Core / Interaction Layer 既有码**（MUST NOT 重复定义）：
@@ -2334,18 +2347,11 @@ type EappStateErrorCode =
 EAPP_MODE_INVALID           （Interaction Layer）    channel.mode 与操作不匹配
 EAPP_DELIVERY_UNSUPPORTED   （Interaction Layer）    delivery 与 mode 不匹配
 EAPP_UNSUPPORTED            （Composition Core / Interaction Layer）  能力不支持
-EAPP_CURSOR_TOO_OLD         （Interaction Layer E1） 日志已压缩到无法定位请求位置
+EAPP_CURSOR_TOO_OLD         （Interaction Layer）   日志已压缩到无法定位请求位置
 EAPP_INTERNAL               （Composition Core）
 ```
 
-**全局注册**：
-
-```typescript
-type EappErrorCode = EappCoreErrorCode | EappInteractionErrorCode | EappStateErrorCode;
-```
-
-错误的构造 MUST 在实现内只定义一次，三层共用。
-若三层各自声明一个同名结构而不定义如何构造它，错误的产生将无从成立。
+错误对象的形状与其构造规则见 §18。附录 D 是三层的完整登记。
 
 **retryable 赋值规则**：
 
@@ -2367,7 +2373,7 @@ EAPP_UNSUPPORTED / EAPP_STATE_UNSUPPORTED / EAPP_WATCH_UNSUPPORTED / EAPP_INTERN
 | Revision | 未定义 | = Channel 日志位置 = Cursor |
 | 复用 | — | Channel / Subscription / Cursor / AckContext / Transport |
 | 冲突策略 | — | CAS（Core only） |
-| Transport 关系 | — | StateTransport extends Transport |
+| Transport 关系 | — | `StateTransport` 在 `Transport` 之上扩展 |
 
 ### 48.1 层级隔离（冻结）
 
@@ -2417,6 +2423,115 @@ IX-6  StateChannel MUST be a narrowing view of Channel; narrowing `mode` to the
 
 ---
 
+## 第 IV 部分 插件开发表面
+
+## 50. 表面
+
+前三部分规定了语义：一个 Plugin 是什么，Binding 如何派生，Channel 如何互动，状态如何共享。
+语义相同的两份实现仍可能无法互通，因为**插件作者写代码时面对的是操作的形状**：
+
+```
+find 还是 discover？
+bind 的第二个参数是 PluginRef 还是它的 id？
+请求超时返回什么？
+```
+
+只要形状由各自实现决定，两份实现就必须互相适配，而这正是"任何语言都能实现同一个协议"所要避免的成本。
+
+**插件开发表面**是前三部分已经要求过的操作，在名称、参数、结果与错误码上的**统一形状**。
+
+> **表面不是第四层。** 它不定义新的本体，不改变前三部分的任何语义，也不引入新的状态。
+> 它只规定这些操作**叫什么、收什么、给什么**。任何一条表面规则与前三部分冲突时，以前三部分为准，
+> 且该冲突是表面的缺陷，不是前三部分的例外。
+
+表面的价值是可判定的：**一个只读过本文件的第三方，写出的插件应当能被另一份同样只读过本文件的实现直接组合**，中间不需要任何适配代码。
+
+## 51. 操作集合
+
+表面由**五个操作组**构成。组名是给读者的分类，不是新的本体。
+
+| 操作组 | 操作 | 定义处 |
+|---|---|---|
+| **发现** | `find`、`watch` | §12.2 |
+| **连接** | `bind`、`unbind`、`createChannel` | §12.2、§32 |
+| **激活** | `activate`、`deactivate`、`suspend`、`resume` | §12.2 |
+| **通信** | `send`、`subscribe`，以及消费单元自带的 `ack` / `nack` | §30.1、§27.1、§29 |
+| **调用** | `invoke` | §52 |
+
+**一个操作组 MUST 只含上表列出的操作**，且这些操作 MUST 使用上表与各定义处给出的名称与参数。
+实现 MAY 提供额外的操作，但**插件作者完成组合、互动与调用 MAY 不需要它们**（`OP-1`、`OP-2`）。
+
+四个操作组的语义与形状已在前三部分完全给出；本部分只补上第五组，它此前有信封而没有操作名。
+
+## 52. 调用
+
+请求-应答在 §23 中已有完整的信封与规则（`RQ-1`–`RQ-4`），但没有一个**操作**把"发一个请求、等它的应答"这件事命名。
+`invoke` 是那个名字。
+
+```
+invoke(from, to, capability, request, options)   ->  response
+```
+
+| 参数 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `from` | `PluginRef` | 是 | **调用方** |
+| `to` | `PluginRef` | 是 | 被调用方 |
+| `capability` | `CapabilityRef` | 是 | 被调用的能力 |
+| `request` | 任意值 | 是 | 请求体，放入 `RequestMessage.payload` |
+| `options.timeoutMs` | number | 否 | 截止时间，从调用开始计；到期即超时 |
+| `options.correlationId` | string | 否 | 显式指定关联标识；省略时由实现分配 |
+
+结果是 `ResponseMessage.result`（成功）或一个 `EappError`（失败）。
+
+**`from` 是被调用方的对面。** 这与 `bind(from, to, capability)` 中 `from` 是提供方并不矛盾：
+`bind` 描述的是能力的**提供**方向，`invoke` 描述的是请求的**发出**方向。
+两个操作的 `to` 都指向被调用方所暴露的能力（`OP-4`）。
+
+```
+invoke(from, to, capability)  ⟺  bind(from = to, to = from, capability) 之上的 request
+```
+
+**超时 MUST 以 `EAPP_TIMEOUT` 结束。** 截止时间到达时，`invoke` MUST 失败，MUST NOT 继续等待，
+MUST NOT 返回一个形态未定义的值（`OP-5`）。迟到的应答 MUST 按 `RQ-2` 被丢弃。
+
+## 53. 合规等级
+
+| 等级 | 要求 | 蕴含自 |
+|---|---|---|
+| **CS1 Discovery** | `find`、`watch` | C1 |
+| **CS2 Connection** | `bind`、`unbind`、`createChannel` | C1、C2 |
+| **CS3 Lifecycle** | `activate`、`deactivate`、`suspend`、`resume` | C3 |
+| **CS4 Messaging** | `send`、`subscribe`，以及消费单元的 `ack` / `nack` | I1、I2、I6 |
+| **CS5 Invocation** | `invoke` | I1、RQ |
+
+声明某一等级的实现 MUST 声明上表"蕴含自"一列中的全部等级；反之，声明后者中的某一等级时
+MUST 同时声明对应的表面等级（`OP-9`）。例如，声明 `I6` 的实现 MUST 同时声明 `CS4`。
+
+含 `state` 模式的 Channel 不在此表内：它复用 `send` / `subscribe` / `ack`，语义见第 III 部分。
+
+## 54. 不变量
+
+```
+OP-1  表面 MUST 只由本协议规定的操作组成。实现 MUST NOT 要求插件作者使用本协议未定义的
+      入口来完成组合、互动或调用。
+OP-2  五个操作的参数与结果中的类型 MUST 全部在本协议内定义；
+      插件作者 MUST 无需访问实现的内部对象即可完成组合、互动与调用。
+OP-3  表面 MUST NOT 引入本协议未定义的语义。表面是前三部分的剖面，不是第四层。
+OP-4  bind 的 from MUST 是提供 Capability 的一方；invoke 的 from MUST 是调用方。
+      两个操作的 to MUST 指向同一方。
+OP-5  invoke MUST 携带关联标识；截止时间到达时 MUST 以 EAPP_TIMEOUT 结束，
+      MUST NOT 静默挂起，MUST NOT 返回形态未定义的值。
+OP-6  activate / deactivate / suspend / resume 的语义 MUST 与 §10 一致；
+      suspend MUST NOT 断开 Binding。
+OP-7  同一组合语义的两份实现 MUST 能只经由表面互通：表面 MUST NOT 要求实现特有的握手、
+      能力协商或序列化约定。
+OP-8  find 的结果 MUST 可直接作为 bind 与 invoke 的输入，
+      MUST NOT 需要额外的注册、转换或转写步骤。
+OP-9  声明 C1、C2、C3、I1 或 I6 中任一等级的实现 MUST 同时声明由它蕴含的表面等级（§53）。
+```
+
+---
+
 ## 附录 A：术语表
 
 | 术语 | 定义 |
@@ -2442,7 +2557,7 @@ IX-6  StateChannel MUST be a narrowing view of Channel; narrowing `mode` to the
 
 本附录是本协议声明的全部不变量的唯一清单。每条不变量的陈述在正文中给出；本清单给出 ID 与归纳的陈述，供机械核对。
 
-### B.1 Composition Core
+### B.1 Composition Core（§4–§21）
 
 首次冻结于协议版本 `3.0.0`。后续新增：`C-7`（`3.3.0`）。
 
@@ -2508,7 +2623,7 @@ BR-2  Bootstrap MUST NOT depend on Plugins.
 BR-3  Bootstrap MUST provide initial Discovery.
 ```
 
-### B.2 Interaction Layer
+### B.2 Interaction Layer（§22–§34）
 
 首次冻结于协议版本 `3.1.0`。
 
@@ -2518,16 +2633,16 @@ DL-1..DL-6       Delivery
 L-1..L-7         Lease
 CR-1..CR-5       Cursor
 AK-1..AK-5       Ack / Nack
-CG-1..CG-8       ConsumerGroup（§8）
+CG-1..CG-8       ConsumerGroup
 SUB-1..SUB-9     Subscription
 TR-1..TR-9       Transport
 CC-1..CC-9       Composition ↔ Interaction
-RQ-1..RQ-4       Request 模式（§3）
-EV-1..EV-3       Event 模式（§3）
-ST-1..ST-4       Stream 模式（§3）
+RQ-1..RQ-4       Request 模式
+EV-1..EV-3       Event 模式
+ST-1..ST-4       Stream 模式
 ```
 
-### B.3 State Mode
+### B.3 State Mode（§35–§49）
 
 首次冻结于协议版本 `3.2.0`。
 
@@ -2599,7 +2714,7 @@ API-1  get MUST return the current cell (including deleted) or null.
 API-2  list MUST return matching cells (including deleted), sorted by key.
 API-3  set MUST return the new revision.
 API-4  delete MUST return the key's current revision after the operation.
-API-5  watch MUST return a Interaction Layer-compatible Subscription (awaited; see §10.2).
+API-5  watch MUST return an Interaction Layer-compatible Subscription.
 API-6  snapshot MUST be read-consistent.
 API-7  snapshot MUST include maxRevision.
 API-8  restore MUST overwrite the state covered by snapshot.pattern.
@@ -2630,6 +2745,22 @@ IX-6   StateChannel MUST be a narrowing view of Channel.
 
 ```
 
+### B.4 插件开发表面（§50–§54）
+
+首次冻结于协议版本 `3.4.0`。
+
+```text
+OP-1   表面 MUST 只由本协议规定的操作组成。
+OP-2   五个操作的参数与结果的类型 MUST 全部在本协议内定义。
+OP-3   表面 MUST NOT 引入本协议未定义的语义。
+OP-4   bind 的 from MUST 是提供方；invoke 的 from MUST 是调用方。
+OP-5   invoke MUST 携带关联标识；截止时间到达 MUST 以 EAPP_TIMEOUT 结束。
+OP-6   activate / deactivate / suspend / resume 的语义 MUST 与 Lifecycle 一致。
+OP-7   同一组合语义的两份实现 MUST 能只经由表面互通。
+OP-8   find 的结果 MUST 可直接作为 bind 与 invoke 的输入。
+OP-9   声明 C1、C2、C3、I1 或 I6 中任一等级的实现 MUST 声明对应的表面等级。
+```
+
 ---
 
 ## 附录 C：冻结语义答案
@@ -2656,64 +2787,65 @@ IX-6   StateChannel MUST be a narrowing view of Channel.
 
 ## 附录 D：错误码全集
 
-本附录是各层错误码的并集，用于避免同一语义在不同层被赋予两个码。
-每个码的**产生条件**在它的定义处给出（见下表「定义处」列），本表只做登记。
+本附录是三个分卷错误码的并集，用于避免同一语义在不同分卷被赋予两个码。
+错误对象的形状与其构造规则见 §18。
 
-`EappError` 对象 MUST 至少包含 `code` 与 `message` 两个字段，MAY 包含 `details` 与 `retryable`。
-错误的构造 MUST 在实现内只定义一次，三层共用；三层各自声明一个同名结构而不定义构造，不构成实现。
+本附录是一份**登记**，不是触发条件的定义处 —— 一个码在哪些条款下产生，见 D.1 的"产生它的条款"列。
 
-### D.1 Composition Core
+### D.1 有触发条款的码
 
-| 错误码 | 定义处 |
+| 错误码 | 分卷 | 产生它的条款 |
+|---|---|---|
+| `EAPP_BINDING_DUPLICATE` | Composition Core | §9.8 |
+| `EAPP_BINDING_INVALID` | Composition Core | §9.7、§32 |
+| `EAPP_BINDING_CLOSED` | Composition Core | §32 |
+| `EAPP_CURSOR_TOO_OLD` | Interaction Layer | §26.2、§49 |
+| `EAPP_CURSOR_UNSUPPORTED` | Interaction Layer | §26.3、§30.4 |
+| `EAPP_DELIVERY_UNSUPPORTED` | Interaction Layer | §24、§32、§44.1 |
+| `EAPP_LEASE_CLOSED` | Interaction Layer | §29 |
+| `EAPP_MODE_INVALID` | Interaction Layer | §44.1 |
+| `EAPP_REVISION_CONFLICT` | State Mode | §39.2、§39.4、§40.2、§44.5 |
+| `EAPP_REVISION_INVALID` | State Mode | §37.2、§37.3、§39.5 |
+| `EAPP_SNAPSHOT_INVALID` | State Mode | §43.3 |
+| `EAPP_STATE_ACTOR_REQUIRED` | State Mode | §44.1 |
+| `EAPP_STATE_KEY_NOT_FOUND` | State Mode | §40.1、§40.2、§40.5 |
+| `EAPP_STATE_PATTERN_INVALID` | State Mode | §42 |
+| `EAPP_STATE_UNSUPPORTED` | State Mode | §44.1、§46.2 |
+| `EAPP_STATE_VALUE_INVALID` | State Mode | §39.3 |
+| `EAPP_TIMEOUT` | 插件开发表面 | §52、§54 |
+| `EAPP_UNSUPPORTED` | 三个分卷 | §30.4、§44.1、§46.2 |
+| `EAPP_WATCH_UNSUPPORTED` | State Mode | §46.2 |
+
+### D.2 仅登记、无触发条款的码
+
+| 错误码 | 分卷 |
 |---|---|
-| `EAPP_IDENTITY_INVALID` | §18 |
-| `EAPP_IDENTITY_DUPLICATE` | §18 |
-| `EAPP_CAPABILITY_NOT_FOUND` | §18 |
-| `EAPP_CAPABILITY_NOT_EXPOSED` | §18 |
-| `EAPP_PLUGIN_NOT_FOUND` | §18 |
-| `EAPP_PLUGIN_INACTIVE` | §18 |
-| `EAPP_BINDING_INVALID` | §18 |
-| `EAPP_BINDING_DUPLICATE` | §18 |
-| `EAPP_BINDING_CLOSED` | §18 |
-| `EAPP_LIFECYCLE_INVALID` | §18 |
-| `EAPP_DISCOVERY_SCOPE_INVALID` | §18 |
-| `EAPP_UNSUPPORTED` | §18 |
-| `EAPP_INTERNAL` | §18 |
+| `EAPP_IDENTITY_INVALID` | Composition Core |
+| `EAPP_IDENTITY_DUPLICATE` | Composition Core |
+| `EAPP_CAPABILITY_NOT_FOUND` | Composition Core |
+| `EAPP_CAPABILITY_NOT_EXPOSED` | Composition Core |
+| `EAPP_PLUGIN_NOT_FOUND` | Composition Core |
+| `EAPP_PLUGIN_INACTIVE` | Composition Core |
+| `EAPP_LIFECYCLE_INVALID` | Composition Core |
+| `EAPP_DISCOVERY_SCOPE_INVALID` | Composition Core |
+| `EAPP_INTERNAL` | 三个分卷 |
+| `EAPP_CHANNEL_INVALID` | Interaction Layer |
+| `EAPP_CHANNEL_CLOSED` | Interaction Layer |
+| `EAPP_CHANNEL_DRAINING` | Interaction Layer |
+| `EAPP_CURSOR_INVALID` | Interaction Layer |
+| `EAPP_SUBSCRIPTION_INVALID` | Interaction Layer |
+| `EAPP_LEASE_EXPIRED` | Interaction Layer |
+| `EAPP_LEASE_CONFLICT` | Interaction Layer |
+| `EAPP_STATE_KEY_INVALID` | State Mode |
 
-### D.2 Interaction Layer
+这 17 个码在本文件中有登记，但**没有任何条款规定它们的产生条件**。
+两个实现可以为同一个码规定不同的触发条件，而两者都能自称合规 ——
+合规的判据是不变量，而不变量没有提到这些码。
 
-| 错误码 | 定义处 |
-|---|---|
-| `EAPP_CHANNEL_INVALID` | §33 |
-| `EAPP_CHANNEL_CLOSED` | §33 |
-| `EAPP_CHANNEL_DRAINING` | §33 |
-| `EAPP_MODE_INVALID` | §33 |
-| `EAPP_DELIVERY_UNSUPPORTED` | §33 |
-| `EAPP_CURSOR_INVALID` | §33 |
-| `EAPP_CURSOR_UNSUPPORTED` | §33 |
-| `EAPP_CURSOR_TOO_OLD` | §33 |
-| `EAPP_SUBSCRIPTION_INVALID` | §33 |
-| `EAPP_LEASE_EXPIRED` | §33 |
-| `EAPP_LEASE_CLOSED` | §33 |
-| `EAPP_LEASE_CONFLICT` | §33 |
-| `EAPP_TIMEOUT` | §33 |
+这是一处已知缺口。收口有两种方式：为它们补上触发条款，或把它们从登记中移除。
+在此之前，这些码的语义不构成跨实现契约。
 
-### D.3 State Mode
-
-| 错误码 | 定义处 |
-|---|---|
-| `EAPP_STATE_UNSUPPORTED` | §47 |
-| `EAPP_WATCH_UNSUPPORTED` | §47 |
-| `EAPP_STATE_KEY_INVALID` | §47 |
-| `EAPP_STATE_KEY_NOT_FOUND` | §47 |
-| `EAPP_STATE_VALUE_INVALID` | §47 |
-| `EAPP_STATE_PATTERN_INVALID` | §47 |
-| `EAPP_STATE_ACTOR_REQUIRED` | §47 |
-| `EAPP_REVISION_INVALID` | §47 |
-| `EAPP_REVISION_CONFLICT` | §47 |
-| `EAPP_SNAPSHOT_INVALID` | §47 |
-
-### D.4 retryable 的赋值规则
+### D.3 retryable 的赋值规则
 
 ```
 EAPP_REVISION_CONFLICT  → true   （CAS 冲突可重试）

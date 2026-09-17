@@ -25,6 +25,18 @@
  *      being language-neutral, and the two places where it did are exactly the two
  *      places a reader was told to go read code.
  *
+ *   6. No language-tagged code blocks. Every signature used to be written as
+ *      TypeScript, in a document whose opening paragraph promised that any language
+ *      could implement it. A tagged block is a language commitment; the notation is
+ *      defined in §1.2 instead.
+ *
+ *   7. No section references inside appendix B. A section reference that resolves is
+ *      not thereby correct: after the three documents were merged, four references in
+ *      the appendix still carried the *old* numbering — `ConsumerGroup（§8）` pointed
+ *      at Plugin, `Request 模式（§3）` at the version rules. Rule 2 cannot see that.
+ *      The appendix is a declaration list; pointers to sections belong in the body,
+ *      where a reader can follow them.
+ *
  * Usage:  node tools/check-spec.mjs [--json]
  * Exit:   0 = gate passes, 1 = at least one violation
  */
@@ -132,10 +144,32 @@ function main() {
     }
   });
 
+  // -- R6 -------------------------------------------------------------------
+  const taggedBlocks = [];
+  fence = false;
+  lines.forEach((line, index) => {
+    const m = /^\s*```(\w+)/.exec(line);
+    if (/^\s*```/.test(line)) {
+      if (fence) { fence = false; return; }
+      fence = true;
+      if (m && m[1] !== 'text') taggedBlocks.push({ line: index + 1, lang: m[1] });
+      return;
+    }
+  });
+
+  // -- R7 -------------------------------------------------------------------
+  const appendixRefs = [];
+  for (let i = appendixStart; i < appendixEnd; i += 1) {
+    // The `### B.n` headings carry the part's section range; the blocks are declarative.
+    if (/^###/.test(lines[i])) continue;
+    if (/§\s*\d/.test(lines[i])) appendixRefs.push({ line: i + 1, text: lines[i].trim().slice(0, 100) });
+  }
+
   // -------------------------------------------------------------------------
   const failed =
     numbering.length > 0 || references.length > 0 || duplicated.length > 0 ||
-    unstated.length > 0 || links.length > 0 || implementationRefs.length > 0;
+    unstated.length > 0 || links.length > 0 || implementationRefs.length > 0 ||
+    taggedBlocks.length > 0 || appendixRefs.length > 0;
 
   if (asJson) {
     process.stdout.write(`${JSON.stringify({
@@ -143,17 +177,17 @@ function main() {
       sections: sections.size,
       referencesChecked: refsChecked,
       invariants: declared.length,
-      numbering, references, duplicated, unstated, links, implementationRefs,
+      numbering, references, duplicated, unstated, links, implementationRefs, taggedBlocks, appendixRefs,
     }, null, 2)}\n`);
     process.exit(failed ? 1 : 0);
   }
 
   const out = [];
   out.push(`spec sections: ${sections.size}, numbered 1..${sections.size}${numbering.length ? ' — GAPS' : ''}`);
-  out.push(`spec references: ${refsChecked} § reference(s) checked, ${references.length} dangling`);
+  out.push(`spec references: ${refsChecked} § reference(s) checked, ${references.length} dangling, ${appendixRefs.length} inside appendix B`);
   out.push(`spec invariants: ${declared.length} declared, ${duplicated.length} declared twice, ${unstated.length} never stated`);
   out.push(`spec self-sufficiency: ${links.length} link(s) out of docs/spec/`);
-  out.push(`spec language neutrality: ${implementationRefs.length} implementation reference(s)`);
+  out.push(`spec language neutrality: ${implementationRefs.length} implementation reference(s), ${taggedBlocks.length} language-tagged block(s)`);
   out.push('');
 
   const detail = [];
@@ -163,6 +197,8 @@ function main() {
   for (const u of unstated) detail.push(`  UNSTATED   ${u.id}  (listed at line ${u.line}, never stated in the body)`);
   for (const l of links) detail.push(`  link       line ${l.line}: ${l.target}`);
   for (const i of implementationRefs) detail.push(`  names an implementation  line ${i.line}: ${i.text}`);
+  for (const t of taggedBlocks) detail.push(`  language-tagged block  line ${t.line}: \`\`\`${t.lang}`);
+  for (const a of appendixRefs) detail.push(`  appendix B points at a section  line ${a.line}: ${a.text}`);
 
   if (detail.length) out.push(...detail, '');
   out.push(failed ? 'SPEC GATE: FAIL' : 'SPEC GATE: PASS');
