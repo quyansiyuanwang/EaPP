@@ -142,6 +142,21 @@ export class SocketTransport implements StateTransport {
     return this.#request(payload, timeoutMs);
   }
 
+  /**
+   * A transport that carries requests between processes has to be able to say who
+   * serves a Channel — otherwise two processes both run the handler and the
+   * duplicate reply hides it. See `ServerRoleProvider`.
+   */
+  readonly sharesServerRole = true;
+
+  async claimServerRole(channel: string): Promise<boolean> {
+    return (await this.#request({ op: 'serverClaim', channel }, this.#timeoutMs)) as boolean;
+  }
+
+  async releaseServerRole(channel: string): Promise<void> {
+    await this.#request({ op: 'serverRelease', channel }, this.#timeoutMs);
+  }
+
   // ------------------------------------------------------------ request plumbing
 
   #onData(chunk: string): void {

@@ -63,6 +63,9 @@ export class SocketBroker {
   #held = new Map<number, Held>();
   /** socket -> the group holders it registered, so a dropped connection frees them. */
   #holders = new Map<Socket, Set<string>>();
+  /** channel -> the connection that serves it. At most one, for as long as it lives. */
+  #servers = new Map<string, Socket>();
+  #serving = new Map<Socket, Set<string>>();
   readonly #groups: GroupRegistry;
   #port: number;
   #host: string;
@@ -141,6 +144,8 @@ export class SocketBroker {
     for (const socket of this.#sockets) socket.destroy();
     this.#sockets.clear();
     this.#holders.clear();
+    this.#servers.clear();
+    this.#serving.clear();
 
     await this.#groups.close();
     await new Promise<void>((resolve) => this.#server.close(() => resolve()));
@@ -152,6 +157,7 @@ export class SocketBroker {
   #attach(socket: Socket): void {
     this.#sockets.add(socket);
     this.#holders.set(socket, new Set());
+    this.#serving.set(socket, new Set());
     socket.setNoDelay(true);
     const decoder = new FrameDecoder();
 
@@ -187,6 +193,15 @@ export class SocketBroker {
       const holders = this.#holders.get(socket);
       this.#holders.delete(socket);
       for (const holder of holders ?? []) void this.#groups.releaseHolder(holder);
+
+      // A server that has gone away stops being the server, so its role returns to
+      // whoever asks next. Holding it for a disconnected socket would make the
+      // Channel unservable with no way to tell.
+      const serving = this.#serving.get(socket);
+      this.#serving.delete(socket);
+      for (const channel of serving ?? []) {
+        if (this.#servers.get(channel) === socket) this.#servers.delete(channel);
+      }
     };
     socket.on('close', drop);
     socket.on('error', drop);
@@ -346,6 +361,28 @@ export class SocketBroker {
       case 'groupView': {
         const view = await this.#groups.view(channel, request.name ?? '');
         return view ? toWireView(view) : null;
+      }
+
+      // ------------------------------------------------- server role (request mode)
+      //
+      // request/response assumes exactly one process serves a Channel. Two would
+      // each run the handler; the duplicate reply is dropped by the correlation
+      // tracker, so the caller notices nothing while the side effect happened
+      // twice. Arbitrating here is the same move as the claim table: the decision
+      // belongs where the messages are.
+
+      case 'serverClaim': {
+        const current = this.#servers.get(channel);
+        if (current !== undefined && current !== socket) return false;
+        this.#servers.set(channel, socket);
+        this.#serving.get(socket)?.add(channel);
+        return true;
+      }
+
+      case 'serverRelease': {
+        if (this.#servers.get(channel) === socket) this.#servers.delete(channel);
+        this.#serving.get(socket)?.delete(channel);
+        return null;
       }
 
       default:
