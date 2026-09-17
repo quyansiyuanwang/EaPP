@@ -50,7 +50,7 @@ conformance/
 | 层 | 检查项 | 覆盖的不变量 |
 |---|---|---|
 | `core` | 33 | v3.0 §13 的 51 条中的 40 条 |
-| `interaction` | 46 | v3.1 §14 的 75 条中的 45 条 |
+| `interaction` | 49 | v3.1 §14 的 75 条中的 48 条 |
 
 **两个 driver 跑的数量不同**（Go 33、TypeScript 79），因为它们的 `layers` 不同。
 所以"33 条检查 × 2 套实现"这个说法已经不再成立，也不该被写回去。
@@ -97,11 +97,12 @@ fixture，driver 协议目前没有暴露它。
 | 创建路径 | CC-2（含 DORMANT→DRAINING→ACTIVE）、CC-3、CC-4、CC-5、CC-6、CC-7、CC-8、CC-9 |
 | Cursor | CR-1、CR-3、CR-4 |
 | Subscription | SUB-1、SUB-2、SUB-3、SUB-4、SUB-5、SUB-6、SUB-7、SUB-8、SUB-9 |
+| Lease | L-2、L-3、L-6（经由 ConsumerGroup 观察：L-2 即 CG-3，L-3 即 AK-1，L-6 由 claim TTL 到期观察） |
 | Ack / Nack | AK-1、AK-2、AK-3、AK-4、AK-5 |
-| ConsumerGroup | CG-1、CG-2、CG-3、CG-4、CG-5、CG-6、CG-7 |
+| ConsumerGroup | CG-1、CG-2、CG-3、CG-4、CG-5、CG-6、CG-7、CG-8 |
 | Transport | TR-5、TR-6、TR-7、TR-8、TR-9 |
 | 模式 | EV-1、ST-1、ST-3 |
-| Delivery | DL-6（与 CC-5 合并为一条检查） |
+| Delivery | DL-1、DL-2、DL-6（DL-1/DL-2 检查取值的闭合性；DL-6 与 CC-5 合并为一条检查） |
 
 ### interaction：没有覆盖，以及为什么
 
@@ -110,12 +111,11 @@ fixture，driver 协议目前没有暴露它。
 | CR-2 Cursor MUST be persistable and recoverable | 要求重启一个实现并观察它从闭区间恢复。「重启」在 driver 协议里不存在 |
 | CR-5 / TR-9 的 cursor 分支 | 需要一份 `supportsCursor: false` 的实现。仓库里没有，而给 driver 加一个"假装不支持"的开关会让检查测到开关本身 |
 | CC-1 | 与 CH-1、CC-6、CC-7 是同一件事的三种说法，已由后者覆盖；不重复声明 |
-| CG-8 | 由 SUB-4（mode group 必须指名非空 group）与 CG-1 共同覆盖；单独一条需要"加入一个不存在的组"的形状，而 driver 的 `subscription.open` 会创建组 |
 | RQ-1 … RQ-4 | request 模式的 correlationId 与 deadline 语义在 runtime 的调用路径上，v3.1 §3 只是形状。driver 协议没有暴露 `invoke` —— 那会把 runtime 的编排搬进驱动层 |
 | EV-2 / EV-3 | "event 的投递 MAY 为零次 / 多次"是 MAY。检查 MAY 只能检查"不禁止"，而那是恒真的 |
 | ST-2 / ST-4 | 与 CR-4 / CR-3 同源，已由它们覆盖 |
-| DL-1 … DL-5 | 投递保证本身在传输层；driver 暴露的是 Channel 的 `delivery` 声明，其相容性由 DL-6 检查 |
-| L-1 … L-7 Lease | Lease 是 Subscription 与 ConsumerGroup 的实现机制，不是它们暴露的形状。要单独检查它，driver 需要暴露 Lease 句柄 —— 那会要求每个实现都把 Lease 做成可寻址的实体，而规范没有要求 |
+| DL-3 … DL-5 | 投递保证的执行在传输层；driver 暴露的是 Channel 的 `delivery` 声明与它的相容性，那由 DL-1 / DL-2 / DL-6 检查 |
+| L-1、L-4、L-5、L-7 | Lease 是 Subscription 与 ConsumerGroup 的实现机制，不是它们暴露的形状。要完整检查它，driver 需要暴露 Lease 句柄 —— 那会要求每个实现都把 Lease 做成可寻址的实体，而规范没有要求。L-2 / L-3 / L-6 可以从 ConsumerGroup 那一侧观察到，已覆盖 |
 | TR-1 … TR-4 | 与 v3.0 的 CH-1 同类：否定性的结构主张。TR-2 的能力声明由 TR-9 检查形状 |
 
 **缺口写在这里而不是藏起来，是因为它们比通过的部分更需要被知道。**

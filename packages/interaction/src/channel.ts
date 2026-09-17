@@ -40,16 +40,38 @@ export interface ManagedChannel extends Channel {
   requireActive(operation: string): void;
 }
 
+const VALID_DELIVERIES: readonly DeliveryGuarantee[] = ['at-most-once', 'at-least-once'];
+
 /**
- * §4.4: `stream` and `state` allow only `at-least-once`; the other modes allow either.
+ * §4.4 / CC-4: an omitted delivery is derived from the mode.
+ *
  * Deliberately NOT tolerant of unknown modes: a typo must fail loudly rather than
- * silently default to a weaker guarantee.
+ * silently default to a weaker guarantee. The layer checks the mode against
+ * `VALID_MODES` before reaching here, so the fallback branch is only reachable for a
+ * mode that is already known.
  */
 export function defaultDeliveryFor(mode: ChannelMode): DeliveryGuarantee {
   return mode === 'stream' || mode === 'state' ? 'at-least-once' : 'at-most-once';
 }
 
+/**
+ * §4.4: `stream` and `state` allow only `at-least-once`; the other modes allow either.
+ *
+ * The second check alone was not enough. It only asks whether the mode and the delivery
+ * are *compatible*, so a third value such as `'exactly-once'` was accepted for `event`
+ * and carried on the Channel — while DL-1 says delivery MUST be one of the two, and
+ * DL-2 says exactly-once MUST NOT appear in Core at all. TypeScript callers could not
+ * pass it; the value arrives from a wire or another language, where the type system is
+ * not there to help. The conformance harness found this the first time it probed an
+ * out-of-range value. Nothing else had.
+ */
 export function assertDeliveryAllowed(mode: ChannelMode, delivery: DeliveryGuarantee): void {
+  if (!VALID_DELIVERIES.includes(delivery)) {
+    throw new EappError(
+      'EAPP_DELIVERY_UNSUPPORTED',
+      `unknown delivery guarantee '${String(delivery)}'`, // DL-1 / DL-2
+    );
+  }
   if ((mode === 'stream' || mode === 'state') && delivery !== 'at-least-once') {
     throw new EappError(
       'EAPP_DELIVERY_UNSUPPORTED',

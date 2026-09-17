@@ -626,6 +626,44 @@ export const INTERACTION_CHECKS = [
       );
     },
   },
+  {
+    id: 'CG-8',
+    rule: 'a group-mode Subscription MUST name an existing ConsumerGroup on the same Channel',
+    async run(t) {
+      const { channel } = await boundChannel(t);
+      await t.driver.request('group.open', { channel: channel.id, name: 'workers' });
+      // A second, real group on the same Channel: the name has to resolve, not merely
+      // be non-empty. That distinction is the whole of CG-8 — SUB-4 covers the shape of
+      // the name, this covers whether it names anything.
+      await t.driver.request('group.open', { channel: channel.id, name: 'alpha' });
+      await openSub(t, channel, { mode: 'group', group: 'workers' }); // resolves
+      await t.driver.refused(
+        'subscription.open',
+        { channel: channel.id, options: { mode: 'group', group: 'no-such-group' } },
+        'EAPP_SUBSCRIPTION_INVALID',
+      );
+    },
+  },
+  {
+    id: 'L-6 / CG-6',
+    rule: 'a position held past its claim TTL MUST become available to the group again',
+    async run(t) {
+      const { channel } = await boundChannel(t);
+      // A claim TTL short enough to observe, rather than the 30-second default.
+      await t.driver.request('group.open', { channel: channel.id, name: 'workers', claimTtlMs: 60 });
+      await send(t, channel, { n: 1 });
+      const a = await openSub(t, channel, { mode: 'group', group: 'workers' });
+      const b = await openSub(t, channel, { mode: 'group', group: 'workers' });
+      const held = await pullOne(t, a);
+      t.equal(held.payload.n, 1, 'the first member takes the position');
+      // Deliberately never acknowledged, and the member stays alive. This is the case
+      // CG-5 does not cover: there the member *left*, which releases by definition;
+      // here it is still there and only the claim has lapsed.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const reclaimed = await pullOne(t, b);
+      t.equal(reclaimed.payload.n, 1, 'the expired claim returns the position to the group');
+    },
+  },
 
   // ----------------------------------------------------------- Transport (v3.1 §10)
   {
@@ -712,6 +750,23 @@ export const INTERACTION_CHECKS = [
   },
 
   // ------------------------------------------------------------- Modes (v3.1 §3.2)
+  {
+    id: 'DL-1 / DL-2',
+    rule: 'delivery MUST be one of the two declared guarantees; exactly-once MUST NOT appear',
+    async run(t) {
+      const { binding } = await boundChannel(t);
+      await t.driver.refused(
+        'channel.create',
+        { binding: binding.id, mode: 'event', delivery: 'exactly-once' },
+        'EAPP_DELIVERY_UNSUPPORTED',
+      );
+      await t.driver.refused(
+        'channel.create',
+        { binding: binding.id, mode: 'event', delivery: 'nonsense' },
+        'EAPP_DELIVERY_UNSUPPORTED',
+      );
+    },
+  },
   {
     id: 'EV-1',
     rule: 'an event MUST NOT expect a response',
