@@ -72,6 +72,7 @@ fixture，driver 协议目前没有暴露它。
 | **B-8 uniqueness check + creation MUST be atomic** | **这是最值得注意的一条缺口**：外部 driver 是串行的（stdio 上一条请求一条响应），所以并发 `bind` 根本走不到。参考实现有一个 `go test`/单元测试专门打它（`packages/core`），但**跨实现的检查做不到** —— 要给 driver 协议加一个"并发发起 N 个请求"的形状才行 |
 | B-9 PENDING Binding MUST NOT be externally observable | 中间状态按定义观察不到 |
 | D-4 Discovery MAY cache | MAY 不是 MUST，缓存与否是实现的自由；参考实现有 `cacheStats()`，但那不是规范形状 |
+| 未读的 watch 队列无界增长 | `watch` 的队列是每条 watcher 一个、不设上限的。消费者停止迭代却又不 `close()` 时，事件会一直堆积。规范没有规定丢弃策略，所以**这里也不发明一条** —— 那会让别的实现在一条无从检查的规则下被静默丢事件。关闭是消费者的责任 |
 | D-7 Trust level MUST NOT imply ordered authorization | 需要一个会做授权的实现才能看出顺序；本层不做授权 |
 | CH-1 Core MUST NOT define Channel semantics | 一个否定性的结构主张，不是运行时可观察的行为 |
 | BR-1 / BR-2 | BR-1 要有"一个不存在的根被换掉"的路径，BR-2 要检查依赖关系图。BR-3 能查，另外两条不能 |

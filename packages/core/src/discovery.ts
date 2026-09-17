@@ -142,6 +142,20 @@ export function matchesCriteria(plugin: Plugin, criteria: Criteria): boolean {
 }
 
 /** Internal unbounded queue backing `watch`; closed queues resolve pending reads. */
+/**
+ * The queue behind a single watcher.
+ *
+ * **Unbounded, and the consumer owns that.** A watcher yields to one reader; if that
+ * reader stops iterating without closing, events accumulate for as long as the
+ * registry keeps changing. That was harmless while nothing produced events — and
+ * this queue is the reason the wiring above matters: the moment `watch` works, an
+ * abandoned watcher becomes a real leak.
+ *
+ * It is left unbounded rather than given a drop policy because the spec does not
+ * define one, and inventing one here would silently discard events under a rule no
+ * implementation could be checked against. Closing the watch is the consumer's job —
+ * `for await ... break` does it, and `watch.close()` does it explicitly.
+ */
 class AsyncEventQueue<T> {
   private readonly items: T[] = [];
   private readonly waiters: ((result: IteratorResult<T>) => void)[] = [];
