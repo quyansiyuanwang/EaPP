@@ -124,13 +124,41 @@ export const INTERACTION_CHECKS = [
     },
   },
   {
-    id: 'CC-2',
-    rule: 'when the Binding becomes DORMANT the Channel MUST become DRAINING and MUST return',
+    id: 'CC-2 / DRAINING',
+    rule: 'a DRAINING Channel MUST refuse new work and MUST still serve what is in the log',
     async run(t) {
+      // CC-2 checks that the state follows the Binding. This checks the reason DRAINING
+      // exists at all: §2.4 chose it over CLOSED so in-flight work is not discarded,
+      // which means new work is refused while what is already logged remains readable.
       const { pair, channel } = await boundChannel(t);
+      await send(t, channel, { n: 1 });
       await t.driver.request('lifecycle.deactivate', { identity: pair.provider });
-      const draining = await t.driver.request('channel.get', { channel: channel.id });
-      t.equal(draining.state, 'DRAINING', 'state after the Binding goes DORMANT');
+
+      const state = await t.driver.request('channel.get', { channel: channel.id });
+      t.equal(state.state, 'DRAINING', 'the Binding went DORMANT, so the Channel drains');
+
+      await t.driver.refused(
+        'channel.send',
+        { channel: channel.id, payload: { n: 2 } },
+        'EAPP_CHANNEL_DRAINING',
+      );
+      await t.driver.refused(
+        'subscription.open',
+        { channel: channel.id, options: { cursor: 'earliest' } },
+        'EAPP_CHANNEL_DRAINING',
+      );
+      await t.driver.refused(
+        'group.open',
+        { channel: channel.id, name: 'workers' },
+        'EAPP_CHANNEL_DRAINING',
+      );
+
+      const log = await t.driver.request('transport.readAfter', {
+        channel: channel.id,
+        pattern: { all: true },
+      });
+      t.equal(log.length, 1, 'the message written before the drain is still readable');
+
       await t.driver.request('lifecycle.activate', { identity: pair.provider });
       const back = await t.driver.request('channel.get', { channel: channel.id });
       t.equal(back.state, 'ACTIVE', 'recovering the Binding returns the Channel to service');
@@ -296,6 +324,31 @@ export const INTERACTION_CHECKS = [
       const resumed = await openSub(t, channel, { cursor: second.cursor });
       const item = await pullOne(t, resumed);
       t.equal(item.payload.n, 3, 'resuming from the second cursor yields the third message');
+    },
+  },
+  {
+    id: 'CR-2',
+    rule: 'a Cursor MUST be persistable and recoverable',
+    async run(t) {
+      // The "recoverable" half needs no restart: take a concrete cursor, discard the
+      // Subscription that produced it, and resume from the value alone. A cursor that
+      // only works inside the object that issued it is not persistable.
+      const { channel } = await boundChannel(t);
+      await send(t, channel, { n: 1 });
+      const second = await send(t, channel, { n: 2 });
+      await send(t, channel, { n: 3 });
+
+      const first = await openSub(t, channel, { cursor: 'earliest' });
+      const item = await pullOne(t, first);
+      await t.driver.request('subscription.ack', { subscription: first.subscription, delivery: item.delivery });
+      const persisted = (await t.driver.request('subscription.state', { subscription: first.subscription })).cursor;
+      await t.driver.request('subscription.close', { subscription: first.subscription });
+
+      t.equal(persisted, item.cursor, 'the confirmed cursor is the acknowledged position');
+
+      const resumed = await openSub(t, channel, { cursor: persisted });
+      const next = await pullOne(t, resumed);
+      t.equal(next.cursor, second.cursor, 'resuming from the persisted value continues where it left off');
     },
   },
   {
@@ -680,6 +733,28 @@ export const INTERACTION_CHECKS = [
       await new Promise((resolve) => setTimeout(resolve, 250));
       const reclaimed = await pullOne(t, b);
       t.equal(reclaimed.payload.n, 1, 'the expired claim returns the position to the group');
+    },
+  },
+
+  {
+    id: 'L-6 / CG-6 (default TTL)',
+    rule: 'an omitted claimTtlMs MUST NOT lapse a claim within a short window',
+    async run(t) {
+      // §8.2 fixes the default at 30_000 ms and requires it to be > 0. A default that
+      // lapsed immediately would make every group thrash, and it is the one thing about
+      // the default a check can see without waiting half a minute.
+      const { channel } = await boundChannel(t);
+      await t.driver.request('group.open', { channel: channel.id, name: 'workers' });
+      await send(t, channel, { n: 1 });
+      const a = await openSub(t, channel, { mode: 'group', group: 'workers' });
+      const b = await openSub(t, channel, { mode: 'group', group: 'workers' });
+      await pullOne(t, a);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const forB = await pull(t, b, 200);
+      t.assert(
+        forB.item === null || forB.item === undefined,
+        'the default claim TTL must not lapse within 250 ms',
+      );
     },
   },
 

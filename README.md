@@ -62,7 +62,7 @@ Transport                   消息如何传输         Memory（进程内） · 
 ```
 不变量           210 / 210         冻结闸门 PASS
 一致性测试        200 passed
-跨实现一致性      core 33 项 + interaction 49 项，按各 driver 声明的层运行
+跨实现一致性      core 33 项 + interaction 51 项，按各 driver 声明的层运行
 示例             5 个，均自检
 ```
 

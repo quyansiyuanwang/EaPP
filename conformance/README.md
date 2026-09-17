@@ -50,7 +50,7 @@ conformance/
 | 层 | 检查项 | 覆盖的不变量 |
 |---|---|---|
 | `core` | 33 | v3.0 §13 的 51 条中的 40 条 |
-| `interaction` | 49 | v3.1 §14 的 75 条中的 48 条 |
+| `interaction` | 51 | v3.1 §14 的 75 条中的 50 条 |
 
 **两个 driver 跑的数量不同**（Go 33、TypeScript 79），因为它们的 `layers` 不同。
 所以"33 条检查 × 2 套实现"这个说法已经不再成立，也不该被写回去。
@@ -94,10 +94,10 @@ fixture，driver 协议目前没有暴露它。
 | 组 | 不变量 |
 |---|---|
 | Channel | CH-1、CH-2、CH-3、CH-4、CH-5、CH-6 |
-| 创建路径 | CC-2（含 DORMANT→DRAINING→ACTIVE）、CC-3、CC-4、CC-5、CC-6、CC-7、CC-8、CC-9 |
-| Cursor | CR-1、CR-3、CR-4 |
+| 创建路径 | CC-2（含 DRAINING 的后果：新工作被拒、既有日志仍可读、Binding 恢复后回到服务）、CC-3、CC-4、CC-5、CC-6、CC-7、CC-8、CC-9 |
+| Cursor | CR-1、CR-2、CR-3、CR-4 |
 | Subscription | SUB-1、SUB-2、SUB-3、SUB-4、SUB-5、SUB-6、SUB-7、SUB-8、SUB-9 |
-| Lease | L-2、L-3、L-6（经由 ConsumerGroup 观察：L-2 即 CG-3，L-3 即 AK-1，L-6 由 claim TTL 到期观察） |
+| Lease | L-2、L-3、L-6（经由 ConsumerGroup 观察：L-2 即 CG-3，L-3 即 AK-1，L-6 由 claim TTL 到期与默认 TTL 观察） |
 | Ack / Nack | AK-1、AK-2、AK-3、AK-4、AK-5 |
 | ConsumerGroup | CG-1、CG-2、CG-3、CG-4、CG-5、CG-6、CG-7、CG-8 |
 | Transport | TR-5、TR-6、TR-7、TR-8、TR-9 |
@@ -108,7 +108,6 @@ fixture，driver 协议目前没有暴露它。
 
 | 不变量 | 为什么检查不了 |
 |---|---|
-| CR-2 Cursor MUST be persistable and recoverable | 要求重启一个实现并观察它从闭区间恢复。「重启」在 driver 协议里不存在 |
 | CR-5 / TR-9 的 cursor 分支 | 需要一份 `supportsCursor: false` 的实现。仓库里没有，而给 driver 加一个"假装不支持"的开关会让检查测到开关本身 |
 | CC-1 | 与 CH-1、CC-6、CC-7 是同一件事的三种说法，已由后者覆盖；不重复声明 |
 | RQ-1 … RQ-4 | request 模式的 correlationId 与 deadline 语义在 runtime 的调用路径上，v3.1 §3 只是形状。driver 协议没有暴露 `invoke` —— 那会把 runtime 的编排搬进驱动层 |
