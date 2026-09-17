@@ -128,15 +128,20 @@ async function runDriver(spec, options) {
     return { spec, results, startupError: error };
   }
 
-  const layers = (driver.hello.layers ?? []).filter((layer) => layer in CHECKS_BY_LAYER);
+  const declared = driver.hello.layers ?? [];
+  const layers = declared.filter((layer) => layer in CHECKS_BY_LAYER);
+  // Layers the driver claims that this harness has no checks for. Reported rather than
+  // ignored: silence here would read as "covered and passing" for a layer nobody checked.
+  const uncovered = declared.filter((layer) => !(layer in CHECKS_BY_LAYER));
+
   if (layers.length === 0) {
     await driver.close();
     return {
       spec,
       results: [],
-      layers: driver.hello.layers ?? [],
+      layers: declared,
       startupError: new Error(
-        `driver claims layers [${(driver.hello.layers ?? []).join(', ')}], none of which this harness has checks for`,
+        `driver claims layers [${declared.join(', ')}], none of which this harness has checks for`,
       ),
     };
   }
@@ -162,7 +167,7 @@ async function runDriver(spec, options) {
   }
 
   await driver.close();
-  return { spec, results, layers, stderrTail: driver.stderrTail };
+  return { spec, results, layers, uncovered, stderrTail: driver.stderrTail };
 }
 
 function report(run, options) {
@@ -179,6 +184,11 @@ function report(run, options) {
   }
 
   lines.push(`  layers  ${(run.layers ?? run.spec.layers ?? []).join(', ')}`);
+  if ((run.uncovered ?? []).length > 0) {
+    lines.push(
+      `  \x1b[33mnote\x1b[0m    claimed but not checked by this harness: ${run.uncovered.join(', ')}`,
+    );
+  }
 
   for (const result of run.results) {
     if (result.ok && !options.verbose) continue;
