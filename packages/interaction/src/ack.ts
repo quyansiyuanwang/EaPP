@@ -25,8 +25,16 @@ export interface AckContext {
 }
 
 export interface LocalAckHooks {
-  onAck?: (self: LocalAck) => void;
-  onNack?: (self: LocalAck) => void;
+  /**
+   * Called once, when the context resolves. MAY be async.
+   *
+   * The hook is where the owning subscription settles the position, and a
+   * ConsumerGroup backed by shared state has to confirm that with something that
+   * is not in this process. The return value is awaited by `ack()` / `nack()`, so
+   * a caller that awaits them knows the position is actually settled.
+   */
+  onAck?: (self: LocalAck) => void | Promise<void>;
+  onNack?: (self: LocalAck) => void | Promise<void>;
 }
 
 export class LocalAck implements AckContext {
@@ -68,7 +76,7 @@ export class LocalAck implements AckContext {
       throw new EappError('EAPP_LEASE_CLOSED', 'ack() after nack() is not allowed'); // AK-4
     }
     this.#state = 'ACKED';
-    this.#hooks.onAck?.(this);
+    await this.#hooks.onAck?.(this);
   }
 
   async nack(): Promise<void> {
@@ -79,7 +87,7 @@ export class LocalAck implements AckContext {
       throw new EappError('EAPP_LEASE_CLOSED', 'nack() after ack() is not allowed'); // AK-3
     }
     this.#state = 'NACKED';
-    this.#hooks.onNack?.(this);
+    await this.#hooks.onNack?.(this);
   }
 
   /** Called by the owning subscription when it closes. Not part of `AckContext`. */

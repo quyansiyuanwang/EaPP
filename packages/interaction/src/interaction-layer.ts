@@ -20,6 +20,7 @@ import {
   type ConsumerGroupDeps,
   type ConsumerGroupOptions,
 } from './consumer-group.js';
+import type { GroupStore } from './group-store.js';
 import type { Subscription, SubscriptionSource } from './subscription.js';
 
 /**
@@ -88,6 +89,26 @@ interface GroupHandle {
   readonly name: string;
   readonly channel: string;
   close(): Promise<void>;
+}
+
+/**
+ * Optional transport extension: shared competing state.
+ *
+ * Not part of the frozen `Transport` interface (v3.1 §10). It is a capability a
+ * transport MAY offer, and the interaction layer uses it when present — which is
+ * what lets a `ConsumerGroup` span processes on a transport whose messages do.
+ *
+ * `sharesGroupState` is a declaration rather than something probed by
+ * instantiating a store, so the decision to accept or refuse happens before any
+ * group is created.
+ */
+export interface GroupStoreProvider {
+  readonly sharesGroupState: boolean;
+  groupStore(context: { channel: string; name: string; claimTtlMs: number }): GroupStore;
+}
+
+export function providesGroupStore(transport: Transport): transport is Transport & GroupStoreProvider {
+  return typeof (transport as Partial<GroupStoreProvider>).groupStore === 'function';
 }
 
 export interface InteractionLayerOptions {
@@ -237,24 +258,23 @@ export class InteractionLayerImpl implements InteractionLayer {
     this.#require(channelId); // CG-7: the Channel must exist
 
     // §8.3: a claim IS a Lease, and L-2 ("the same cursor MUST NOT be held by two
-    // ACTIVE leases") is what makes CG-3 true. In this implementation the claim
-    // registry is process-local memory.
+    // ACTIVE leases") is what makes CG-3 true. The claim table therefore has to be
+    // at least as wide as the audience.
     //
-    // That is coherent only while one process is the whole audience. Over a
-    // transport whose messages outlive and outrun this process, two members in two
-    // processes would each be told they hold the same position, every message would
-    // be delivered to both, and CG-3 would be violated without anyone seeing an
-    // error. Silent degradation is exactly what TR-4 forbids, so refuse.
-    //
-    // This is a statement about THIS implementation's claim registry, not about the
-    // transport: a transport that also shares the registry would lift the refusal.
+    // A transport whose messages outlive and outrun this process needs a store that
+    // does too. Without one, two members in two processes would each be told they
+    // hold the same position, every message would be delivered to both, and CG-3
+    // would be violated without anyone seeing an error. Silent degradation is
+    // exactly what TR-4 forbids, so refuse — and say which half is missing, because
+    // it is the store and not the transport: a transport that provides one works.
     const boundary = this.#transport.capabilities.durabilityBoundary;
-    if (boundary !== 'process') {
+    const provider = providesGroupStore(this.#transport) ? this.#transport : undefined;
+    if (boundary !== 'process' && provider?.sharesGroupState !== true) {
       throw new EappError(
         'EAPP_UNSUPPORTED',
         `competing consumption is unavailable on transport ${this.#transport.id}: its ` +
-          `durability boundary is '${boundary}', but this implementation's claim registry ` +
-          `is process-local, so CG-3 could not be guaranteed`,
+          `durability boundary is '${boundary}', but it provides no shared group store, ` +
+          `so CG-3 could not be guaranteed`,
       );
     }
 
@@ -267,7 +287,10 @@ export class InteractionLayerImpl implements InteractionLayer {
       );
     }
 
-    const group = await ConsumerGroupImpl.open<T>(channelId, options, source, deps);
+    const group = await ConsumerGroupImpl.open<T>(channelId, options, source, {
+      ...deps,
+      ...(provider ? { store: (context) => provider.groupStore(context) } : {}),
+    });
     byName.set(options.name, group);
     return group;
   }
