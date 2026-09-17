@@ -113,4 +113,4 @@ v3.2.0-state         84 / 84 不变量
 
 ### 已登记的偏离
 
-四项，均修正的是规范草案自身，规范正文已同步。见 [`docs/CONFORMANCE.md`](docs/CONFORMANCE.md) §5。
+四项，修正的对象是规范自身的矛盾，正文已同步。见 [`docs/CONFORMANCE.md`](docs/CONFORMANCE.md) §5。

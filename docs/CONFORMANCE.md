@@ -143,14 +143,14 @@ Subscription 合规，对应 `SW-1`）。
 
 ## 5. 相对规范的偏离（全部已登记）
 
-规范允许的偏离必须被记录，否则"冻结"没有意义。以下四条修正了**规范草案自身**的内容，
-已写回 `docs/spec/`，并在 `CHANGELOG.md` 中留痕。
+规范允许的偏离必须被记录，否则"冻结"没有意义。以下四项修正的是**规范自身的矛盾**，
+已写入 `docs/spec/`，并在 `CHANGELOG.md` 中留痕。
 
 | # | 偏离 | 出处 | 理由 |
 |---|---|---|---|
 | D-1 | `StateChannel.watch()` 返回 `Promise<StateWatcher>` | v3.2 §10.2 原为同步 | r2 同时要求同步返回与"初始 cursor 是具体位置"。解析 `'latest'` 需要异步读 head，同步形式**永远无法满足 r2 自己的 SW-1 断言**。二者不可兼得 |
 | D-2 | 目录布局 `packages/` 而非 `reference/` | v3.0 §19.1 / v3.1 §12.1 | §19.1 用的是 SHOULD；映射关系见 `CHANGELOG.md` |
-| D-3 | ~~`ChannelImpl.connect()` 接受 `DRAINING → ACTIVE`~~ **已收回** | v3.1 §2.2 状态表 | 原判为偏离，因为草案的转移表没有这条边。但该转移是 CC-2 的必然要求（Binding 恢复 ACTIVE ⇒ Channel 回到 ACTIVE）。**规范已补全 §2.2 与 §2.4，实现现在是合规的，不再是偏离** |
+| D-3 | ~~`ChannelImpl.connect()` 接受 `DRAINING → ACTIVE`~~ **已收回** | v3.1 §2.2 状态表 | 原判为偏离，因为当时的转移表没有这条边。但该转移是 CC-2 的必然要求（Binding 恢复 ACTIVE ⇒ Channel 回到 ACTIVE）。**规范已补全 §2.2 与 §2.4，实现现在是合规的，不再是偏离** |
 | D-4 | `EappError.message` 前缀包含 `code` | v3.0/v3.1/v3.2 三份错误模型 | 三份规范自己的测试骨架都写作 `rejects.toThrow('EAPP_...')`，而匹配串针对 `message`。不含 code 则规范形状的断言全部落空 |
 
 ---

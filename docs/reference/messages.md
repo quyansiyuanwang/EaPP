@@ -80,7 +80,7 @@ class CorrelationTracker {
 [Channel](./channel.md) `MUST` 恰好有一种模式。其中 `state` 的运行时语义由 v3.2.0 定义，
 本层只声明它存在并冻结其信封（见 [`Channel`](./channel.md) 的 E1-2 说明）。
 
-**§3.1 的字段 `MUST NOT` 被改名或改义。** 实现 `MAY` 在信封上附加自己的字段
+§3.1 的字段 `MUST NOT` 被改名或改义。实现 `MAY` 在信封上附加自己的字段
 （例如方向判别符、调用方身份），但不改既有语义。
 
 **request —— 一问一答：**
@@ -128,7 +128,7 @@ sender ◄─ResponseMessage{correlationId: R}── receiver        （0 或 1 
 
 | 码 | 触发条件 | retryable |
 |---|---|---|
-| `EAPP_TIMEOUT` | `assertRequestMessage()` 收到不是 request 形状的值，或 `correlationId` / `operation` 为空。**注意**：§13 没有为"格式非法"指定码，实现复用了 `EAPP_TIMEOUT`；语义上更贴近 `EAPP_INTERNAL`，属实现选择 | `false` |
+| `EAPP_TIMEOUT` | `assertRequestMessage()` 收到不是 request 形状的值，或 `correlationId` / `operation` 为空。§13 没有为"格式非法"指定码，实现复用了 `EAPP_TIMEOUT`；语义上更贴近 `EAPP_INTERNAL`，属实现选择 | `false` |
 | `EAPP_INTERNAL` | `assertResponseMessage()` 收到不是 response 形状的值；`CorrelationTracker.begin()` 登记一个仍在途的 `correlationId`（RQ-1 的编程错误路径） | `false` |
 
 `retryable` 取 `EappError` 的默认值（本层的码不在 `RETRYABLE_CODES` 中）。

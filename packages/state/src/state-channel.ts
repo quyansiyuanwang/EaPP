@@ -42,8 +42,8 @@ export interface StateChannel extends Channel {
   /**
    * Returns a Promise because the initial position MUST be resolved eagerly (§7.4 / SUB-9):
    * resolving `'latest'` requires a read of the channel head, and a synchronous return
-   * could only hand back an unresolved cursor — which is exactly the r2 defect that made
-   * its own SW-1 assertion impossible to satisfy.
+   * could only hand back an unresolved cursor, which makes the SW-1 assertion
+   * (`cursor` toBeDefined) impossible to satisfy.
    */
   watch(pattern: StatePattern, options?: WatchOptions): Promise<StateWatcher>;
   snapshot(pattern: StatePattern): Promise<StateSnapshot>;

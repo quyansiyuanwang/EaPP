@@ -1,6 +1,6 @@
 # `Revision`
 
-> 一次写入在 Channel 状态日志中的**位置**。它与 v3.1 的 `Cursor` 是同一域上的同一类型——这不是类比，是裁定。
+> 一次写入在 Channel 状态日志中的**位置**。它与 v3.1 的 `Cursor` 是同一域上的同一类型。
 
 | | |
 |---|---|
@@ -84,7 +84,7 @@ State Mode 的实例化。规范 §2.2 因此写成"REV-7 不再是『例外』�
 
 ### 3. 为什么 MUST NOT 用 per-cell 计数器
 
-r2 草案把 `Revision` 实现为**每个 cell 自己的计数器**。这条捷径同时打断三件事：
+把 `Revision` 实现为**每个 cell 自己的计数器**会同时打断三件事：
 
 | 后果 | 说明 |
 |---|---|
@@ -92,13 +92,13 @@ r2 草案把 `Revision` 实现为**每个 cell 自己的计数器**。这条捷�
 | 不能充当 Cursor | 某个 cell 的计数器不指向日志中的任何位置，"从 p 恢复"因而没有定义 |
 | 观察契约不可实现 | `SW-4`（每个 watcher 独立 cursor）与 `SW-9`（初始位置可解析为具体值）都要求一个**跨 cell 的位置域**；per-cell 计数无法提供它 |
 
-这一缺陷在 r2 里表现为 `readStateAfter` 返回 `StateCell[]`（当前值数组）：**同一 key 的两次写入无法
-表达**，中间变更永久丢失，cursor 语义因此落空。参考实现以 `readChangesAfter` 返回**变更流**
-（`StateChange[]`）取代它，才让"独立 cursor + per-update ack + 删除事件可观察"三者同时成立。
+`readChangesAfter` 返回**变更流**（`StateChange[]`）：它使"独立 cursor + per-update ack +
+删除事件可观察"三者同时成立。若读法改为返回 `StateCell[]`（当前值数组），
+**同一 key 的两次写入无法表达**，中间变更永久丢失，cursor 语义因此落空。
 
 ### 4. 比较 MUST 由 Transport 提供
 
-`compareRevision` 是 Transport 的能力，不是调用方的自由。理由：位置的**全序**是 Transport 的属性
+`compareRevision` 是 Transport 的能力，不是调用方的自由。位置的**全序**是 Transport 的属性
 （`ordering`、日志是否压缩、token 如何编码），调用方看到的只是不透明字符串。参考实现把 Transport
 身份编进 token（形如 `mem-1!0000000000000001`）并固定宽度零填充，使字典序等于数值序；换一个
 Transport，token 形状可以完全不同，而协议不受影响。
@@ -148,7 +148,7 @@ MUST NOT "尽力排序"——静默错误排序会让 CAS 接受一个它根本�
 | `EAPP_REVISION_INVALID` | `expectedRevision` 是陌生 token，而 key **存在**，因此需要一次比较才能判定前提 | `false` |
 | `EAPP_REVISION_CONFLICT` | 前提在语法上成立但事实不成立：key 不存在、revision 不匹配、或 `null` 却已存在（§5.2） | `true` |
 
-第 4 行与第 5 行的关系值得精确对待：**错误的类型取决于 CAS 判定走到了哪一步**。key 不存在时，
+第 4 行与第 5 行的分别在于**CAS 判定走到了哪一步**。key 不存在时，
 实现无须比较即可判定失败，抛出 `EAPP_REVISION_CONFLICT`；key 存在时必须比较，陌生 token 因此在
 这一层被拦成 `EAPP_REVISION_INVALID`。这与规范一致——§5.2 把"key 不存在"直接规定为
 `EAPP_REVISION_CONFLICT`，而没有为它附加任何 token 合法性前提。

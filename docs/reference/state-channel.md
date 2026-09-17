@@ -108,11 +108,9 @@ MUST NOT 被实现为 set({ deleted: true }) 的语法糖。
 | 已删除（rev = r） | `r` | **no-op 成功** |
 | 已删除 | `r' ≠ r` | `EAPP_REVISION_CONFLICT` |
 
-两处尤其容易写错：
-
 - **`expectedRevision: null` 表示"从未存在"，不是"当前不存在"。** 逻辑删除过的 key **仍然算存在**，
-  因此 `null` 不能把它复活；复活 MUST 携带旧 revision。§5.2 把"`null` = 从未存在"写成硬约束
-  （F-01 的关闭点），也正是 r2 草案把两种读法混在一起时自相矛盾的地方。
+  因此 `null` 不能把它复活；复活 MUST 携带旧 revision。§5.2 把"`null` = 从未存在"写成硬约束；
+  把 `null` 读成"当前不存在"会让逻辑删除变成一条隐式的覆盖通道。
 - **同一个"key 不存在"会因 `expectedRevision` 的形状给出两个不同错误码。** 删除一个从未存在的 key：
   传 `null` → `EAPP_STATE_KEY_NOT_FOUND`；传任意 revision → `EAPP_REVISION_CONFLICT`。
   这不是不一致，而是两种主张的失败：前者是"我要创建一个全新的 key"（不成立：这是删除），
@@ -150,7 +148,7 @@ IX-4  StateTransport MUST extend v3.1 Transport
 IX-6  StateChannel MUST be a narrowing view of Channel
 ```
 
-（`IX-5` 已按 R-1 删除：`ChannelMode` 从未被扩展。）
+（`IX-5` 已删除 —— `ChannelMode` 自 v3.1 起就包含 `'state'`，没有可扩展的条目。）
 
 具体地：`Channel` 上 MUST NOT 出现 `get` / `set` / `list` / `watch` / `snapshot` / `restore` / `revision`
 中的任何一个；`mode` 的取值域 MUST NOT 因为 State Mode 而改变；State Mode 新增的操作只出现在

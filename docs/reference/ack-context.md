@@ -56,7 +56,7 @@ class LocalAck implements AckContext {
 
 ## 语义
 
-**两条终结故事必须分开**，否则 `for await` 循环会在 `finally` 里炸掉：
+**两条终结路径必须分开**，否则 `for await` 循环会在 `finally` 里抛错：
 
 | 路径 | 触发者 | `ack()` / `nack()` 的行为 | 规范落点 |
 |---|---|---|---|
@@ -78,7 +78,7 @@ class LocalAck implements AckContext {
 
 **E1-3：`AckContext` 必须被完整实现。** 任何消费端事件类型（含 v3.2 的
 `StateUpdateEvent`）`MUST` 同时提供 `ack()` 与 `nack()`；只提供 `ack()` 的实现
-`MUST` 被视为不符合本层规范。AK-3 / AK-4 的"再次调用"指的正是**同一 `AckContext` 实例上**
+`MUST` 被视为不符合本层规范。AK-3 / AK-4 的"再次调用"指**同一 `AckContext` 实例上**
 的状态冲突调用。
 
 **实现约束（非规范性）**：同一位置被重新投递时 `MUST` 复用同一个 `AckContext`，

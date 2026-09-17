@@ -75,7 +75,7 @@ class PluginRegistry {
 Plugin 是「一个具有 Identity、可选地暴露 Capability、并参与 Lifecycle 的可组合实体」（§5.2）。它 MAY 是一个 in-process module、process、worker、remote service、device、runtime、transport、database、AI model、UI component，或者另一个 plugin system——EaPP **不要求**它们具有相同的实现形态，只要求它们都可被这三个字段描述。
 
 - 引用即身份：`PluginRef = Identity`（三字段值对象，不含版本）。没有独立的「插件句柄」类型，因此 [`Binding`](./binding.md) 的端点与 [`CompositionCore`](./composition-core.md) 的寻址参数都是 Identity。见 [`Identity`](./identity.md)。
-- **注册表返回的是只读视图**：`identity` 与 `lifecycle` 是 getter，`capabilities` 每次读取返回一份新副本。调用方改不动注册表，因此能力集合的变化 MUST 走显式声明（P-4）。
+- **注册表返回的是只读视图**：`identity` 与 `lifecycle` 是 getter，`capabilities` 每次读取返回一份新副本。调用方无法修改注册表，因此能力集合的变化 MUST 走显式声明（P-4）。
 - 注册时做防御性拷贝：注册之后修改调用方手里的数组不会改变注册表；`capabilities` 为空的 Plugin 是合法的（P-2），它 MAY 先注册、稍后声明能力。
 - 身份只在注册那一刻确定：`identity` 在注册表内不可替换（P-3）。要换身份就是另一个 Plugin。
 - 生命周期操作走 `setLifecycle`，它只编码 §7.2 的转移表；`activate` / `suspend` / `resume` / `deactivate` 的幂等与「SUSPENDED MUST 用 resume」是操作层面的性质，由 [`CompositionCore`](./composition-core.md) 施加。见 [`Lifecycle`](./lifecycle.md)。

@@ -65,7 +65,7 @@ Which revision ──► Capability.version
 Which runtime  ──► Identity.instance
 ```
 
-- Identity 是**值对象**：`domain` / `id` / `instance` 三个字段是它的全部内容。多出的字段不改变语义，而是被拒绝——这正是「MUST NOT 包含版本语义」的可判定形式（ID-6）。
+- Identity 是**值对象**：`domain` / `id` / `instance` 三个字段是它的全部内容。多出的字段不改变语义，而是被拒绝——「MUST NOT 包含版本语义」因此是可判定的（ID-6）。
 - 规范化的键是 `domain/id/instance`（`identityKey`）。插件注册表、[`Binding`](./binding.md) 的端点、[`Discovery`](./discovery.md) 的结果都以它作为唯一的标识形式，因此三个字段都是非空字符串是必要的：否则 `undefined` 会被拼进键里。
 - Identity **不是自发的**：Plugin MUST NOT 伪造 Identity，`IdentityRegistry` 是整条链上唯一的签发者（ID-5）。伪造的字面量对象存在，但 `has()` 为 `false`、`require()` 抛 `EAPP_IDENTITY_INVALID`、`isIssued()` 为 `false`。
 - 签发的身份被 `Object.freeze` 冻结，`get` / `require` / `create` 返回的都指向同一个冻结值（ID-4）。

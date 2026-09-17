@@ -54,12 +54,12 @@ key 存在且已删除 ──►  get(key) =  { deleted: true,  value: undefined
 ```
 
 这不是实现细节，而是协议要求（SC-6）。理由：`DEL-5` 的 no-op 分支要求调用方**拿得出已删除 cell 的
-`revision`**；若 `get` 对已删除的 key 返回 `null`，该分支永远不可达，`DEL-6` 的"删除后重新 set"
-也无从携带 revision。v3.2 r2 草案允许 `get` 返回 `null`，正是它让 own `DEL-5` 不可实现的根因。
+`revision`**，`DEL-6` 的"删除后重新 set"也要携带它。若 `get` 对已删除的 cell 返回 `null`，
+这两个前提都无法满足。
 
 **`updatedBy` 必须有来源。** 写入可以显式携带 `actor`，否则回落到 Channel 的 `owner`
 （§4.1 SC-5 / §5.1）。二者都没有时不是"填一个默认身份"，而是硬失败
-`EAPP_STATE_ACTOR_REQUIRED`——r2 草案伪造 `{domain:'x',id:'x',instance:'x'}` 的做法会让 SC-5 变成恒真式。
+`EAPP_STATE_ACTOR_REQUIRED`——伪造 `{domain:'x',id:'x',instance:'x'}` 这样的占位身份会让 SC-5 变成恒真式。
 
 **`value` 的可序列化约束只约束活的 cell。** SC-4 明确限定"only for `deleted === false`"：墓碑的
 `value` 恒为 `undefined`，不参与该约束。

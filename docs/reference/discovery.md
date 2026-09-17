@@ -11,7 +11,7 @@
 | **稳定度** | FROZEN |
 
 > **这里曾经有一处未登记的冲突，已经关掉。** §8.1 把 `Criteria.version` 注释为
-> `// SemVer range`，而早期实现只做精确匹配 —— 于是 `find({ version: '^1.0.0' })`
+> `// SemVer range`，而实现一度只做精确匹配 —— 于是 `find({ version: '^1.0.0' })`
 > **静默返回空集**，与"确实没有插件匹配"无法区分。
 > 实现已按规范补上 range 匹配（[`packages/core/src/semver.ts`](../../packages/core/src/semver.ts)），
 > 记录见 [`CHANGELOG.md` §勘误 E-E](../spec/CHANGELOG.md) 与
@@ -84,7 +84,7 @@ class DiscoveryService implements Discovery {
 | 字段 | 类型 | 必填 | 含义 |
 |---|---|---|---|
 | `capability` | `string` | 否 | 能力名 |
-| `version` | `string` | 否 | SemVer range（§8.1）；参考实现只支持精确值与 `'*'` |
+| `version` | `string` | 否 | SemVer range（§8.1）。裸版本精确匹配；`^` / `~` / `>` `>=` `<` `<=` `=` / `*`、空格连接的合取、`\|\|` 均可。语法不认识的范围由 `isValidRange` **明确拒绝**，而不是静默不匹配（勘误 E-E） |
 | `constraints` | `Constraint[]` | 否 | 每项都 MUST 在候选的能力声明里找到 `kind` + `value` 都相等的对应项 |
 | `identity` | `Partial<Identity>` | 否 | 逐字段比对 `domain` / `id` / `instance`，未给出的字段不过滤 |
 
@@ -96,9 +96,9 @@ Discovery 只回答「有哪些 Plugin 存在、可见」，不回答「它们�
 
 ### Trust Scope MUST 可评估
 
-`DiscoveryService` 只接受**自己有策略**的 scope：`trustLevel` MUST 在 `policy.trustLevels` 里，`trustDomain` MUST 在 `policy.trustDomains` 里，且 scope 对象 MUST NOT 携带 `trustLevel` / `trustDomain` 之外的字段。任何不满足的情形一律抛 `EAPP_DISCOVERY_SCOPE_INVALID`，而不是静默忽略——静默忽略会让「只返回 scope 内可见的 Plugin」变成一句空话（D-1、D-2 因此可判定）。`find` 是 `async`，所以它异步拒绝；`watch` 在注册 watcher **之前**同步抛出。
+`DiscoveryService` 只接受**自己有策略**的 scope：`trustLevel` MUST 在 `policy.trustLevels` 里，`trustDomain` MUST 在 `policy.trustDomains` 里，且 scope 对象 MUST NOT 携带 `trustLevel` / `trustDomain` 之外的字段。任何不满足的情形一律抛 `EAPP_DISCOVERY_SCOPE_INVALID`，静默忽略会让「只返回 scope 内可见的 Plugin」变成一句空话（D-1、D-2 因此可判定）。`find` 是 `async`，所以它异步拒绝；`watch` 在注册 watcher **之前**同步抛出。
 
-可见性由一个谓词决定：`policy.isVisible(plugin, scope)`。未提供该谓词时，被接受的 scope 内所有 Plugin 都可见；scope 为空对象时全部可见。
+可见性由一个谓词决定：`policy.isVisible(plugin, scope)`。未提供该谓词时，被接受的 scope 内所有 Plugin 都可见；scope 为空对象时，所有 Plugin 都可见。
 
 ### Trust Level 是分类，不是等级（§8.2）
 
@@ -106,7 +106,7 @@ Discovery 只回答「有哪些 Plugin 存在、可见」，不回答「它们�
 
 ### 匹配
 
-`matchesCriteria` 先按 `criteria.identity` 过滤（给出的字段 MUST 相等），再看能力：`capability` / `version` / `constraints` 都缺席时只按身份过滤；否则要求候选 Plugin 的**某一个**能力同时满足三项条件（能力之间是「或」，条件之间是「与」）。
+`matchesCriteria` 先按 `criteria.identity` 过滤（给出的字段 MUST 相等），再看能力：`capability` / `version` / `constraints` 三项都缺席时只按身份过滤；否则候选 Plugin 的**某一个**能力 MUST 同时满足三项条件（能力之间是「或」，条件之间是「与」）。
 
 ### 事件与缓存
 

@@ -52,7 +52,7 @@ SUSPENDED --deactivate--> INACTIVE
 INACTIVE  --deactivate--> INACTIVE
 ```
 
-`canTransition` 就是这张表的直接编码：目标为 `INACTIVE` 一律允许；目标为 `ACTIVE` 时来源 MUST 是 `INACTIVE` 或 `SUSPENDED`；目标为 `SUSPENDED` 时来源 MUST 是 `ACTIVE`。`INACTIVE → SUSPENDED` 不被允许——没有「直接暂停」这回事。
+`canTransition` 就是这张表的直接编码：目标为 `INACTIVE` 一律允许；目标为 `ACTIVE` 时来源 MUST 是 `INACTIVE` 或 `SUSPENDED`；目标为 `SUSPENDED` 时来源 MUST 是 `ACTIVE`。`INACTIVE → SUSPENDED` 不被允许——不存在「直接暂停」。
 
 ### 操作语义（§7.3）
 

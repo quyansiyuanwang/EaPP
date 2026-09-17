@@ -96,7 +96,7 @@ DORMANT  iff OPEN 且 ACTIVE 的条件不满足
 | `from` 撤回 Capability | DORMANT |
 | 上述任一恢复 | ACTIVE |
 
-**`deactivate` 与 `suspend` 对 Binding 的效果相同**：都只让绑定派生为 DORMANT，都不解除绑定。见 [`Lifecycle`](./lifecycle.md)。
+`deactivate` 与 `suspend` 对 Binding 的效果相同：都只让绑定派生为 DORMANT，都不解除绑定。见 [`Lifecycle`](./lifecycle.md)。
 
 ### 身份与唯一性
 

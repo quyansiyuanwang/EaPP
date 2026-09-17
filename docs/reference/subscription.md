@@ -67,7 +67,7 @@ class TransportSubscription<T> implements Subscription<T> {
 | `state` | `SubscriptionState` | 是 | `ACTIVE` / `SUSPENDED` / `CLOSED` |
 | `suspend()` | `Promise<void>` | 是 | 停止投递；已 yield 未 ack 的项仍然有效 |
 | `resume()` | `Promise<void>` | 是 | 从当前游标继续；`MUST NOT` 重投已 ack 的项 |
-| `close()` | `Promise<void>` | 是 | 终止迭代（挂起的 `next()` resolve 为 `done`）；`MUST` 幂等 |
+| `close()` | `Promise<void>` | 是 | 终止迭代（挂起的 `next()` resolve 为 `done`）；`close()` 幂等（SUB-6 / SUB-7） |
 | `cursor`（`options`） | `CursorAnchor` | 否 | 起始位置；缺省 `'latest'`，按 §6.2 在创建期立即解析 |
 | `pollIntervalMs` | `number` | 否 | 无推送时的轮询间隔，默认 `50` 且 `MUST > 0` |
 
@@ -99,11 +99,11 @@ group       同 group 的订阅共享一个 cursor，竞争消费          （MU
 **消费单元 `T` `MUST` 携带 [`AckContext`](./ack-context.md)**（E1-3）。
 对 State 模式，`T` 就是 v3.2 的 `StateUpdateEvent`，它扩展同一接口而不是另立一套。
 
-**锚点在创建期解析。** §6.2 规则 5 要求锚点 eager 解析；SUB-9 把它写成可观察的承诺：
+锚点在创建期解析。§6.2 规则 5 要求锚点 eager 解析；SUB-9 把它写成可观察的承诺：
 `create()` 返回时 `subscription.cursor` 已是具体位置，`MUST NOT` 延迟到首次迭代。
 默认锚点是 `'latest'`。
 
-**独立游标互不干扰。** `exclusive` 订阅各自推进自己的游标，
+独立游标互不干扰。`exclusive` 订阅各自推进自己的游标，
 一个订阅的确认 `MUST NOT` 影响同 Channel 上的另一个订阅（SUB-2 / SUB-3）——
 每个订阅因此看到全部匹配项。`group` 模式下成员不持有自己的位置，
 它的 `cursor` 是**组**的游标，见 [ConsumerGroup](./consumer-group.md)。

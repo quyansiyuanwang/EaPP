@@ -57,11 +57,11 @@ interface ManagedChannel extends Channel {
 
 ## 语义
 
-**ChannelRef 是跨层契约，不是便利类型。** §2.2 规定 Composition Core 只可见 `id` 与
+ChannelRef 是跨层契约，不是便利类型。§2.2 规定 Composition Core 只可见 `id` 与
 `binding`；`mode` / `delivery` / `state` 属于 Interaction Layer，`MUST NOT` 向下泄漏。
 实现把这一点落成两个类型：`ChannelRef`（纯数据）与 `ManagedChannel`（数据 + 生命周期操作）。
 
-**四种模式已经冻结。** `request` / `event` / `stream` / `state` ——
+四种模式已经冻结。`request` / `event` / `stream` / `state` ——
 其中 `'state'` 自 v3.1 起就是 `ChannelMode` 的既有成员（E1-2），
 后续版本 `MUST NOT` 声称"扩展出第四种模式"。`state` 的运行时语义由 v3.2.0 定义，
 本层只声明它存在并冻结其信封（见 [模式消息](./messages.md)）。
@@ -76,7 +76,7 @@ OPEN ──connect──► ACTIVE ──drain──► DRAINING
 
 实现额外接受 `DRAINING --connect--> ACTIVE`。规范的理由是 CC-2：Binding 恢复 `ACTIVE` 时，
 其 Channel `MUST` 回到服务中；一个再也无法恢复的 `DRAINING` Channel 会让该要求无法满足。
-**§2.2 的转移表本身没有列出这条边**，见本页"与实现的差异"。
+§2.2 的转移表本身没有列出这条边，见本页"与实现的差异"。
 
 **创建路径**（§12，E1-5 补齐）：
 
@@ -94,7 +94,7 @@ interface CreateChannelRequest {
 本实现只在构造 `InteractionLayerImpl` 时提供了 `BindingSource` 才强制这两条，
 否则该层可脱离 Composition Core 单独使用。
 
-**Channel 随 Binding 派生。** Binding 由 Composition Core 派生其状态（v3.0 §6.4），
+Channel 随 Binding 派生。Binding 由 Composition Core 派生其状态（v3.0 §6.4），
 本层订阅通知并跟随：`ACTIVE` → `OPEN`/`ACTIVE`，`DORMANT` → `DRAINING`，
 `CLOSED` → 先关闭该 Channel 的 ConsumerGroup，再 `close()` 该 Channel（CH-2 / CC-2）。
 

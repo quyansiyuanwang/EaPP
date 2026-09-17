@@ -53,7 +53,7 @@ interface TransportCapabilities {
 ## 语义
 
 **只有两条保证**（DL-1 / DL-2）。`exactly-once` `MUST NOT` 出现在 Core：
-它需要跨进程的分布式提交，协议层不假装能提供。`at-least-once` 的下界由
+它需要跨进程的分布式提交，协议层不声称能提供。`at-least-once` 的下界由
 [Subscription](./subscription.md) 的重新投递实现，上界不是本层的承诺 —— 因此
 `at-least-once` 的消费者 `MUST` 幂等（DL-5）。
 
@@ -78,7 +78,7 @@ at-least-once  必须确认（DL-4）：未 ack 的位置保持可用，在下�
 | `state` | **`at-least-once` only** | `at-least-once` |
 
 对 `stream` / `state` 指定 `at-most-once` `MUST` 返回 `EAPP_DELIVERY_UNSUPPORTED`（DL-6），
-`MUST NOT` 被静默升级成更强的保证 —— 调用方写错了就应该听到响声。
+`MUST NOT` 被静默升级成更强的保证 —— 非法组合在创建期失败。
 
 **未覆盖点（本页登记）**：§10.4 的 TR-4 要求 "Channel `MUST NOT` 使用超出 Transport 能力的特性"，
 但实现的能力检查 `assertCapability()` 只覆盖 `cursor` 与 `lease`，

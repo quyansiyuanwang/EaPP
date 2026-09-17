@@ -67,15 +67,15 @@ class LeaseManager {
 
 ## 语义
 
-**租约是"临时所有权"这一机制。** §5 只规定机制本身 —— 谁领取了哪个位置、能持有到什么时候；
+租约是"临时所有权"这一机制。§5 只规定机制本身 —— 谁领取了哪个位置、能持有到什么时候；
 它**在哪一组消费者之间竞争**由 [ConsumerGroup](./consumer-group.md) 规定（§8.1）。
 
-**冲突判定按 cursor，而不是按租约对象。** `claim()` 先 `releaseExpired()`，
+冲突判定按 cursor，而不是按租约对象。`claim()` 先 `releaseExpired()`，
 再检查该 cursor 上是否已有 `ACTIVE` 条目；是则抛 `EAPP_LEASE_CONFLICT`。
-L-2 —— "同一 cursor 在任意时刻 `MUST NOT` 被多个 `ACTIVE` Lease 持有" —— 因此是一条
-结构性成立的规则，而不是调用方需要自律的约定。
+`L-2` —— "同一 cursor 在任意时刻 `MUST NOT` 被多个 `ACTIVE` Lease 持有" ——
+因此在结构上成立，不需要调用方自律。
 
-**终结状态是单调的：**
+终结状态是单调的：
 
 ```
 ACTIVE ──ack()──► ACKED
@@ -86,14 +86,14 @@ ACTIVE ──ack()──► ACKED
 
 `ACKED` / `NACKED` / `EXPIRED` 都不再回到 `ACTIVE`。`ack()` / `nack()` 在已到达
 自身终态时是静默成功（L-3 / L-4），而在到达对侧终态时抛 `EAPP_LEASE_CLOSED` ——
-这正是 §9 的 AK-3 / AK-4 在 Lease 面上的同一规则。
+这与 §9 的 AK-3 / AK-4 在 Lease 面上是同一条规则。
 
-**重新领取要等过期，或显式归还。** 到期的位置 `MAY` 被其他消费者重新领取（L-6），
+重新领取要等过期，或显式归还。到期的位置 `MAY` 被其他消费者重新领取（L-6），
 而"重新领取"的判据只认 `expiresAt`：过期条目 `MUST NOT` 影响新租约的可领取性（L-7），
 也不会改变其他仍 `ACTIVE` 的条目。`release(cursor)` 是主动路径：不需要等时钟，
 直接把该 cursor 归还可领取状态。
 
-**时钟是注入的。** `LeaseManagerOptions.now` 默认 `Date.now`，测试注入单调递增的假时钟，
+时钟是注入的。`LeaseManagerOptions.now` 默认 `Date.now`，测试注入单调递增的假时钟，
 使 L-5 / L-6 / L-7 不需要 sleep —— 这也是 `expiresAt` 用绝对毫秒数而非相对时长的原因。
 
 ---

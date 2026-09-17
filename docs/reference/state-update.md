@@ -83,8 +83,7 @@ expectedRevision is Revision
        set({ key:'k', expectedRevision: r2 })    ──► 成功，分配 r3 > r2        ← 必须带 revision
 ```
 
-这条规则是 r2 草案自相矛盾之处（F-01）的关闭点：把 `null` 读成"当前不存在"会让逻辑删除变成
-一条隐式的"允许覆盖"通道。
+把 `null` 读成"当前不存在"，逻辑删除就变成一条隐式的"允许覆盖"通道。
 
 ### 2. 存在性按属性判定（SU-2）
 
@@ -105,7 +104,7 @@ expectedRevision is Revision
 ⑥ 至少有一个：value 属性存在，或 deleted = true → 否则 EAPP_STATE_VALUE_INVALID （SU-2）
 ```
 
-注意能力闸门更靠前：`StateChannel.set` 先 `assertStateCapability(transport, 'revision')`，再
+能力闸门更靠前：`StateChannel.set` 先 `assertStateCapability(transport, 'revision')`，再
 `validateUpdate`。一个既不支持 revision 又收到非法 update 的调用，得到的是
 `EAPP_STATE_UNSUPPORTED`，不是字段错误。
 
@@ -151,7 +150,7 @@ type StatePattern =
   同时出现 key 与 prefix
 ```
 
-r2 的校验只看属性名，于是 `{ all: false }` 与 `{ key: '' }` 会通过一条自带错误码的规则——
+只看属性名的校验会让 `{ all: false }` 与 `{ key: '' }` 通过一条自带错误码的规则——
 一个不能拒绝的校验器不是校验器。参考实现用 `Object.keys(pattern).length !== 1` 加逐字段类型判定
 关闭这一点。§8 只对 pattern 校验提出要求，`StatePattern` 的类型归属（`API-9`）记在
 [`StateChannel`](./state-channel.md)。
@@ -177,7 +176,7 @@ r2 的校验只看属性名，于是 `{ all: false }` 与 `{ key: '' }` 会通�
 | `CF-4` | Policy MUST be specified at Channel creation (`configure()`) | `state.test.ts` › `'CF-1 / CF-4 / CF-5 / IX-6: configuration is validated and the view is not a wrapper'` |
 | `CF-5` | `StateChannel` MUST extend `Channel`, MUST NOT be a wrapper type | `state.test.ts` › `'CF-1 / CF-4 / CF-5 / IX-6: configuration is validated and the view is not a wrapper'` |
 
-`CF-3` 是一条**否定性**约束：Core 不定义 CAS 之外的策略。承载它的测试同时验证了"Core 只接受
+`CF-3` 规定 Core 不定义 CAS 之外的策略。承载它的测试同时验证了"Core 只接受
 `'cas'`"这一可执行的一面（`'lww'` → `EAPP_UNSUPPORTED`）。
 
 ---
@@ -196,7 +195,7 @@ r2 的校验只看属性名，于是 `{ all: false }` 与 `{ key: '' }` 会通�
 | `EAPP_STATE_UNSUPPORTED` | `transport.capabilities.supportsStateRevision === false`，`set` / `delete` / `restore` 拒绝执行（TS-2 / TS-4） | `false` |
 
 关于 `EAPP_REVISION_INVALID` 与 `EAPP_REVISION_CONFLICT` 的分工：**前缀错误取决于 CAS 走到了哪一步**。
-key 不存在时无须比较即可判负，得到 `EAPP_REVISION_CONFLICT`（这正是 §5.2 为"key 不存在"规定的结果）；
+key 不存在时无须比较即可判负，得到 `EAPP_REVISION_CONFLICT`（§5.2 为"key 不存在"规定的结果）；
 key 存在时必须真做一次比较，陌生 token 于是在这一层被拦成 `EAPP_REVISION_INVALID`。
 
 ---

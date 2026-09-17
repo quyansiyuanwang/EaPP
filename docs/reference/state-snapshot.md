@@ -18,7 +18,7 @@
 ```typescript
 interface StateSnapshot {
   readonly channel: string;
-  readonly pattern: StatePattern;   // 本快照的选择范围（r3 新增；r2 无从表达它）
+  readonly pattern: StatePattern;   // 本快照的选择范围
   readonly cells: StateCell[];
   readonly maxRevision: Revision;   // 在读取 cells 之前观测到的 Channel head（§9.2）
   readonly takenAt: number;
@@ -71,11 +71,11 @@ const all = await this.#transport.listState(this.#channel.id, pattern);
 const cells = all.filter((cell) => this.#transport.compareRevision(cell.revision, maxRevision) <= 0);
 ```
 
-于是"快照里可能缺少窗口内的写入"是**允许**的——这正是 `SNAP-3`：快照是 read-consistent，**MUST NOT
+于是"快照里可能缺少窗口内的写入"是**允许**的——`SNAP-3`：快照是 read-consistent，**MUST NOT
 声称 linearizable**。`takenAt` 与 `maxRevision` 共同描述了它的时间点，但没有承诺"此刻世界就是如此"。
 
-r2 草案还有第二个坑：它用 `'' as Revision` 作为归约种子，零匹配时 `maxRevision === ''` ——
-一个没有任何 Transport 能比较的非法值，直接违反 SNAP-2。本版本零匹配时返回的是真实的 head，
+把 `'' as Revision` 当作归约种子，零匹配时 `maxRevision === ''` ——
+一个没有任何 Transport 能比较的非法值，直接违反 SNAP-2。零匹配时返回真实的 head：
 空 Channel 上是 Transport 自己的可比较初始位置（TS-14）。
 
 ### 2. 恢复：只前进，不回退（§9.3）
@@ -95,8 +95,8 @@ r2 草案还有第二个坑：它用 `'' as Revision` 作为归约种子，零�
 - `SNAP-8`：restore MUST append a change for every write；观察者 MUST 能看到它们。
 
 `replace` 模式在补偿删除时会跳过已经是墓碑的 cell（"已经逻辑删除，没有东西需要覆盖"），它们不构成
-"范围外残留"。（r2 的 `restore` 只写不删，与 `API-8`「MUST overwrite current state」的两种读法并存；
-本版本用显式 `mode` 消除歧义。）
+"范围外残留"。（只写不删的 `restore` 会让 `API-8`「MUST overwrite current state」出现两种读法；
+显式 `mode` 消除这个歧义。）
 
 ### 3. `restore` 是唯一的无条件写入路径（SNAP-7）
 
@@ -117,7 +117,7 @@ MUST NOT 在 StateTransport 上提供 restoreState。
 restore MUST 在 StateChannel 层唯一实现，由 nextRevision + writeStateWithRevision 组合而成。
 ```
 
-r2 同时存在 `StateTransport.restoreState` 与 `StateChannel` 自建循环两个竞争入口，关系未定义，
+`StateTransport.restoreState` 与 `StateChannel` 自建循环是两个竞争入口，关系未定义，
 可能双写。§9.4 把恢复收敛成单一实现点。
 
 ---
@@ -138,7 +138,7 @@ r2 同时存在 `StateTransport.restoreState` 与 `StateChannel` 自建循环两
 
 两点关于测试口径的说明：
 
-- `SNAP-3` 是一条**否定性**约束（MUST NOT claim）。可执行的一面是：`StateSnapshot` 上没有任何字段
+- `SNAP-3` 是 MUST NOT claim 的约束。可执行的一面是：`StateSnapshot` 上没有任何字段
   声称 linearizability，唯一与时间有关的声明就是 `maxRevision` 与 `takenAt`；承载其 ID 的测试验证的是
   `maxRevision` 确实等于**读取之前**的 head，以及每个 cell 的 `revision <= maxRevision`。
 - `SNAP-9` 的"拒绝外来 channel"与"`replace` 模式的删除范围"由同一个测试承载；另一个
@@ -194,7 +194,7 @@ for (const cell of snapshot.cells) {
   expect(transport.compareRevision(cell.revision, snapshot.maxRevision)).toBeLessThanOrEqual(0);
 }
 
-// SNAP-2：零匹配也要给出一个可比较的 maxRevision（r2 会归约出非法的 ''）
+// SNAP-2：零匹配也要给出一个可比较的 maxRevision
 const empty = await ch.snapshot({ prefix: 'nothing' });
 expect(empty.cells).toHaveLength(0);
 expect(() => transport.compareRevision(empty.maxRevision, empty.maxRevision)).not.toThrow();

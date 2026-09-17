@@ -57,7 +57,7 @@ function maxCursor(a: Cursor, b: Cursor): Cursor;
 nack 该位置         → 游标不动；该位置回到可用，下一次迭代重新投递（§6.4）
 ```
 
-E1-4 的裁定把两件事区分得很清楚：CR-3 禁止的是**隐式**跳过 —— 也就是"收到了就自动前移"，
+E1-4 的裁定把两件事区分开：CR-3 禁止的是**隐式**跳过 —— 也就是"收到了就自动前移"，
 或者"ack 时只推进到第一个未 ack 项之前"。**显式** ack 一个更靠后的位置、因而放弃中间项，
 是 §6.4 明确允许的行为：
 
@@ -66,8 +66,8 @@ ack(c)   MUST 将 cursor 置为 max(当前 cursor, c)
 nack()   MUST NOT 推进 cursor
 ```
 
-**恢复就是这条规则的另一面。** 游标是普通值，`MUST` 可持久化、可恢复（CR-2）；
-恢复 `MUST` 从该游标继续（CR-4）—— 即严格大于该位置的下一条。
+恢复就是这条规则的另一面。游标是普通值，`MUST` 可持久化、可恢复（CR-2）；
+恢复 `MUST` 从该游标继续（CR-4），即严格大于该位置的下一条。
 一个掉队成员不会拖住位置：组游标同样取"已 ack 位置的最大值"（见 [ConsumerGroup](./consumer-group.md) §8.3）。
 
 ```
@@ -96,8 +96,8 @@ nack()   MUST NOT 推进 cursor
 | 5 | 锚点 `MUST` 在订阅创建时**立即**解析（eager），`MUST NOT` 延迟到首次迭代 |
 | 6 | 若日志已压缩到无法定位 `'earliest'`，`MUST` 返回 `EAPP_CURSOR_TOO_OLD` |
 
-规则 1 的存在是因为 `'earliest'` 本身就是一个合法的 `Cursor` 字符串值，没有这条顺序规则
-两种情形无法区分；规则 5 的落点是 SUB-9 —— `subscription.cursor` 在创建返回前已是具体值。
+规则 1 的存在是因为 `'earliest'` 本身就是一个合法的 `Cursor` 字符串值：没有这条顺序规则，
+两种情形无法区分。规则 5 的落点是 SUB-9 —— `subscription.cursor` 在创建返回前已是具体值。
 
 ---
 

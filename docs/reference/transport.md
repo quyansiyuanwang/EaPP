@@ -193,9 +193,9 @@ v3.2 的状态一致性就相对于这个边界定义。
 
 | ID | 规则 | 文本来源 |
 |---|---|---|
-| `CC-1` | Channel `MUST NOT` 独立于 Binding 存在 | 草案 §8.1（§0 判定为"未改变"），冻结版 §14 汇总 |
-| `CC-2` | Binding `CLOSED` 时 Channel `MUST` 立即进入 `CLOSED` | 同上；实现按 §8.2 把它扩展为"双向派生"：`DORMANT` → `DRAINING`，恢复后回 `ACTIVE` |
-| `CC-3` … `CC-9` | 见下表 | 冻结版 §12 |
+| `CC-1` | Channel `MUST NOT` 独立于 Binding 存在 | §2.4；§14 汇总 |
+| `CC-2` | Binding `CLOSED` 时 Channel `MUST` 立即进入 `CLOSED` | §2.4；实现按 §8.2 把它扩展为"双向派生"：`DORMANT` → `DRAINING`，恢复后回 `ACTIVE` |
+| `CC-3` … `CC-9` | 见下表 | §12 |
 
 `CC-1` / `CC-2` 的规则文本见 [§2.4](../spec/v3.1.0-interaction.md)；§14 把它们
 与 `CC-3` … `CC-9` 一并列入冻结全集。

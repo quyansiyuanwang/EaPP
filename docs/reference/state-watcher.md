@@ -86,8 +86,8 @@ for await (const update of watcher) {
 }
 ```
 
-**MUST NOT** 写成 `watcher.ack(update)`。**MUST NOT** 只提供 `ack()`：只提供 ack 的类型不是合法的
-v3.1 `AckContext`，`AK-3` / `AK-4` 随之不可满足——这正是 r2 草案的事件类型（只带 `ack()`）的缺陷。
+**MUST NOT** 写成 `watcher.ack(update)`。**MUST NOT** 只提供 `ack()`：只提供 `ack()` 的类型不是合法的
+v3.1 `AckContext`，`AK-3` / `AK-4` 随之不可满足。
 
 ### 4. ack / nack 语义（§7.3）
 
@@ -97,8 +97,8 @@ nack()  MUST NOT 推进 cursor；该变更 MUST 在下一次迭代重新投递
 ```
 
 位置只在 **ack** 时前进，收到事件本身不前进（v3.1 CR-1）。**MUST NOT 引入 `pending` 结构**：
-r2 的 `pending` 加"只推进到第一个 PENDING 之前"与 v3.1 §6.4「ack 一个更新的 cursor 意味着放弃中间
-未 ack 的消息」直接冲突，因此被取消。CR-3 禁止的是**隐式**跳过；显式 ack 一个更靠后的位置并放弃
+把 cursor 只推进到第一个未 ack 变更之前，与 v3.1 §6.4「ack 一个更新的 cursor 意味着放弃中间
+未 ack 的消息」直接冲突。CR-3 禁止的是**隐式**跳过；显式 ack 一个更靠后的位置并放弃
 中间项是允许的。
 
 因为位置只在 ack 时前进，同一 watcher 在未 ack 时会看到重复投递——这是 at-least-once 的应有之义。
@@ -116,9 +116,8 @@ r2 的 `pending` 加"只推进到第一个 PENDING 之前"与 v3.1 §6.4「ack �
 ```
 
 这就是 `StateChannel.watch()` 返回 `Promise<StateWatcher>` 的原因（已登记的偏离 D-1）：解析
-`'latest'` 需要异步读取 Channel head，同步返回只能交出一个未解析的 cursor。r2 草案同时要求同步返回
-与"初始 cursor 是具体位置"，因此它自己的 `SW-1` 断言（`expect(w.cursor).toBeDefined()`）必然失败。
-本版本选择让 `watch` 异步，以换取一个真正可满足的 `SUB-9`。
+`'latest'` 需要异步读取 Channel head，同步返回只能交出一个未解析的 cursor。同步返回与
+"初始 cursor 是具体位置"（`SUB-9`）不能同时满足；异步返回才能让 `SUB-9` 成立。
 
 ### 6. 变更发现（§7.5）
 

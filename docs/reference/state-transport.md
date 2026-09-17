@@ -91,7 +91,7 @@ TS-13  寻址 MUST 按 (channel, key) 二元组；MUST NOT 把二者拼接为单
 
 ### 3. 变更流，而不是后像数组
 
-`readChangesAfter` 取代了 r2 的 `readStateAfter`：后者返回 `StateCell[]`（当前值），**无法表达同一 key 的
+`readChangesAfter` 返回变更流，而不是后像数组：返回 `StateCell[]`（当前值）**无法表达同一 key 的
 两次变更**，中间的变更永久丢失，cursor 语义因此不可实现。返回变更流才能让"独立 cursor + per-update
 ack + 删除事件可观察"三者同时成立。
 
@@ -120,9 +120,9 @@ TS-2  Each capability flag MUST have exactly one mandated runtime consequence,
 TS-3  MUST NOT fake support
 ```
 
-`TS-3` 是这一节的立场：声明 `supportsStateWatch: true` 却不实现 `readChangesAfter`，或声明
+声明 `supportsStateWatch: true` 却不实现 `readChangesAfter`，或声明
 `supportsStateRevision: true` 却给不出全序，都是**假声明**——而闸门表的存在使得假声明必然在第一次
-相关调用上暴露。r2 草案声明了四个标志却一个都不检查。
+相关调用上暴露。声明四个标志而不检查任何一个，等于没有声明。
 
 ### 5. 一致性能力收紧（§12.3 / TS-4 / TS-5）
 
@@ -139,8 +139,8 @@ TS-5  A Transport MUST NOT declare stateConsistency = 'strong' beyond its durabi
 > 上段按 §12.3 原文照录，其中 `providesStateRevision` 是遗留的写法；`StateTransportCapabilities`
 > 上的字段名是 `supportsStateRevision`（§12.1 明确指出命名与 v3.1 对齐：`supports*`，非 `provides*`）。
 
-r2 给 CRDT 加了"eventual 的 revision + CAS 共存"的豁免，那等于允许一个**会静默丢更新**的 CAS——
-CAS 的正确性就建立在全序之上。本版本取消豁免，改为收紧能力标志：排序不全序 → 必须声明
+"eventual 的 revision + CAS 共存"的豁免等于允许一个**会静默丢更新**的 CAS——
+CAS 的正确性就建立在全序之上。能力标志因此收紧：排序不全序 → 必须声明
 `supportsStateRevision = false` 且 `stateConsistency = 'eventual'`，于是 CAS 自动不可用。
 
 ### 6. 能力矩阵（§12.4）
@@ -257,7 +257,7 @@ const b = configureStateChannel(
   { conflictPolicy: 'cas', owner },
 );
 await b.set({ key: 'c', value: 'from-b', expectedRevision: null });
-expect(await b.get('b:c')).toBeNull(); // r2 的 `${channel}:${key}` 会让二者变成同一个 cell
+expect(await b.get('b:c')).toBeNull(); // 拼接的 `${channel}:${key}` 会让二者变成同一个 cell
 
 // TS-2：能力标志恰好一个运行时后果 —— 用一致性测试的 cripple 手法关闭 revision 支持
 const crippled = new MemoryTransport();

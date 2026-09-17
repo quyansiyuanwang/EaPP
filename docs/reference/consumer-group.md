@@ -80,8 +80,8 @@ interface InteractionLayer {
 规范的加入路径是通过既有的 `SubscriptionOptions` 表达成员身份（`{ mode: 'group', group }`），
 不引入新的订阅类型。
 
-**`prefetch` 是唯一对抗垄断的旋钮，跨进程时尤其重要。** CG-3 保证排他，不保证公平：
-最先醒来的成员会把当时可见的工作整批领走，其余成员只能等它做完。
+`prefetch` 决定一次 `pull` 最多领走多少位置，是唯一限制单个成员领走量的选项。CG-3 保证排他，
+不保证公平：最先醒来的成员会把当时可见的工作整批领走，其余成员只能等它做完。
 默认 16 偏向单进程吞吐；一个跨进程的工作池通常要调小 ——
 `examples/cross-process/` 用 `1`，于是两个 worker 进程各拿一半。
 
@@ -105,9 +105,9 @@ interface InteractionLayer {
       └── member c
 ```
 
-**排他性不是重新发明的，它就是 [Lease](./lease.md)。** §8.3 写死：一次 claim 就是一次
-Lease，因此 §5 的 L-2 —— "同一 cursor 在任意时刻 `MUST NOT` 被多个 `ACTIVE` Lease 持有" ——
-**就是 CG-3 的机制保证**。`ConsumerGroup` 只是规定这份所有权**在哪一组消费者之间**竞争。
+排他性就是 [Lease](./lease.md)：§8.3 写死一次 claim 就是一次 Lease，因此 §5 的 L-2 ——
+"同一 cursor 在任意时刻 `MUST NOT` 被多个 `ACTIVE` Lease 持有" —— 就是 CG-3 的机制保证。
+`ConsumerGroup` 规定的是这份所有权在哪一组消费者之间竞争。
 一条消息因此不会同时交给同一组的两个成员：第二个成员看到的是"该位置已被领走"。
 
 **组游标 = 组内已 ack 位置的最大值**（§8.3，与 §6.4 一致）：
@@ -125,11 +125,10 @@ Lease，因此 §5 的 L-2 —— "同一 cursor 在任意时刻 `MUST NOT` 被�
 一个成员离开时，它持有的工作 `MUST` 立即释放，而不是等 TTL 走完 ——
 离开的成员永远不会 ack，等它就是让组白白空转（CG-5）。
 
-**每个组起点独立。** `openConsumerGroup()` 以一个已解析的位置开始（创建时取 Channel 头），
+**每个组起点独立**：`openConsumerGroup()` 以一个已解析的位置开始（创建时取 Channel 头），
 组与组之间不共享游标（CG-4）；组里的成员不持有自己的位置，它的 `cursor` 读的就是组的（CG-2）。
 
-**竞争状态住在 `GroupStore` 里，不在这里。** 组真正共享的东西只有两样 ——
-组游标和认领表 —— 它们被提取成一个可注入的 store：
+组共享的东西只有两样 —— 组游标和认领表 —— 两者都放在一个可注入的 `GroupStore` 里：
 
 ```
 LocalGroupStore     进程内内存。默认实现，也是 CG-1…CG-8 的参考语义
@@ -142,7 +141,7 @@ Transport 的 `durabilityBoundary` 比进程宽时，它必须也提供共享的
 （`sharesGroupState` + `groupStore()`），否则 `openConsumerGroup()` 直接抛
 `EAPP_UNSUPPORTED`。宁可明确失败，不给安静的错答案。
 
-**一个接口后果。** §8.2 把 `cursor` 和 `memberCount` 冻结成**同步属性**，
+§8.2 把 `cursor` 和 `memberCount` 冻结成**同步属性**，
 所以一个共享的组只能报告它最后一次看到的值 —— 每次交互都会刷新，
 但"读到的就是此刻的全局值"是 §8.2 承诺不了的。被保证的是"组只有一个位置"，
 不是"每次读它都是最新的"。
