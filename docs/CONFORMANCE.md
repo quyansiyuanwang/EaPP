@@ -130,50 +130,58 @@ Subscription 合规，对应 `SW-1`）。
 |---|---|
 | CRDT | v3.2 §12.4 已裁定其 `supportsStateRevision = false`，属于 Extension |
 | Trust Domain 权限 | v3.0 §8.2 只冻结了 trust level 的分类语义，未冻结授权 |
-| 跨进程的请求分发 | 见下 |
 
-### 跨进程：哪些成立，哪些不成立
+两者都是 Extension，不是缺口。
 
-Transport 与 ConsumerGroup 都跨过来了：`@eapp/transport-socket` +
-`examples/cross-process/`（broker 进程 + 两个 worker 进程 + 本进程）。
+### 跨进程：哪些成立
+
+`@eapp/transport-socket` + `examples/cross-process/`
+（broker 进程 + 两个 worker 进程 + 一个 provider 进程 + 本进程）。
 
 | 成立 | 怎么证 |
 |---|---|
-| 一本共享的、全序的日志 | 三个进程读写同一本；位置连续 |
+| 一本共享的、全序的日志 | 四个进程读写同一本；位置连续 |
 | Cursor 是共享位置，在哪个进程都有效 | 一个进程分配的位置，另一个进程直接读 |
 | **跨进程 CAS 不丢更新** | 两个 worker 同时 read-modify-write 同一个 key，计数器与期望值一致 |
 | **跨进程竞争消费（CG-3）** | 两个 worker 进程加入**同一个**组，每条消息恰好被一个成员持有 |
 | 组游标、成员数跨进程共享（CG-2） | 两个成员数得到同一个 memberCount；组游标由 broker 推进 |
+| **跨进程 request/response** | 调用方注册 provider 为 remote 并 invoke；handler 在 provider 进程执行，回复经 Channel 回来 |
 | 投递保证、保留窗口、`EAPP_CURSOR_TOO_OLD` | 与内存实现同一套语义，同一批测试 |
 | 错误码跨边界保持 | `EAPP_REVISION_CONFLICT` 连同 `retryable` 原样到达调用方 |
 
-竞争消费之所以跨得过去，是因为**竞争状态被搬到了它必须待的地方**。
-§8.3 说"一次 claim 就是一次 Lease"，而 Lease 要有意义，就必须和消息处在
-同一个所有权域里：谁持有哪个位置，只能在数据的所在地决定。
+跨过去的每一项，用的都是同一条原则：**"谁拥有什么"只能在数据所在的那一侧决定**。
 
-实现上，group 的共享状态（组游标 + 认领表）被提取成一个可注入的
-`GroupStore`。默认实现 `LocalGroupStore` 是进程内内存 —— 这正是它以前唯一的形式，
-也正是它跨不过进程的原因。`@eapp/transport-socket` 提供 broker 版本；
-`Transport` 可以声明 `sharesGroupState` 并提供一个 `groupStore()`，
-Interaction Layer 在存在时使用它。
+| 需要归属的东西 | 归属放在哪 | 不这么做会怎样 |
+|---|---|---|
+| 位置分配 | broker 独占发号 | 两边都发出"位置 5"，`readAfter` 返回无意义的结果 |
+| Channel 的 id | 由 Binding 推导 | 各进程的第一个 Channel 都叫 `ch-1`，各自读自己那本日志 |
+| 竞争认领（CG-3） | broker 的组注册表 | 每个进程以为持有同一位置，消息处理两次 |
+| 服务者身份（request 模式） | broker 的服务者角色 | 两个进程都跑 handler，重复回复被 correlation tracker 丢掉，调用方看不出 |
+| 请求路由的"该不该应答" | 区分**可寻址**与**本进程执行**（`registerRemote` / `runtime.hosts`） | 调用方的 dispatcher 抢答 `EAPP_CAPABILITY_NOT_EXPOSED`，与真正的回复竞争 |
 
-**仍然不成立的是跨进程的请求分发。** `runtime.invoke()` 的 dispatcher 跑在调用方进程里，
-所以它只能服务本进程注册的插件。跨进程的 request/response 需要提供方一侧也跑一个
-dispatcher，而那又需要"每个 Channel 恰好一个服务者"的协调 —— 与认领表是同一类问题，
-但还没有解决。
+后两项是本轮补上的。前四项、以及"服务者角色由连接断开释放"，都遵循同一个形状：
+**判定的地方必须和数据待在一起；漏掉任何一条，错误都是安静的。**
 
-一个附带发现：`prefetch`（一个成员一次可以领走多少）在跨进程时是**关键**参数。
-CG-3 保证排他，不保证公平；默认 16 意味着最先醒来的成员会把当时可见的工作整批揽下，
-另一个进程只能干等。默认值偏向单进程吞吐，多进程的池子通常要调小。
+实现上：
+
+- 组的共享状态（组游标 + 认领表）是可注入的 [`GroupStore`](../packages/interaction/src/group-store.ts)。
+  默认 `LocalGroupStore` 是进程内内存；socket Transport 提供 broker 版本。
+- 服务者身份是可选的 Transport 扩展
+  [`ServerRoleProvider`](../packages/interaction/src/transport.ts)。Transport 声明
+  `sharesServerRole` 并实现 `claimServerRole()` / `releaseServerRole()`，
+  角色由连接持有，断开即释放。
+- `runtime.serve(binding)` 是 provider 进程的入口；`runtime.registerRemote(manifest)`
+  让调用方可以寻址一个自己并不执行的插件。两者缺一，拒绝都比假装能做更好。
 
 ### 已经关掉的缺口
 
-下面九项曾列在本节，现已实现并有回归测试。
+下面十项曾列在本节，现已实现并有回归测试。
 
 | 项 | 关闭方式 |
 |---|---|
-| ~~跨进程 Transport~~ | `@eapp/transport-socket`：一个 broker 进程独占位置分配，其余进程通过 TCP 拿到一个**真正的** `SocketTransport`（v3.1 + v3.2 全部方法）。它把 `durabilityBoundary` 诚实地声明为 `'machine'` —— 同一台机器上的每个进程都看得到，但它不持久、也不跨集群。`examples/cross-process/` 用三个真进程验证 |
-| ~~跨进程的 ConsumerGroup~~ | 竞争状态（组游标 + 认领表）从进程内内存提取为可注入的 [`GroupStore`](../packages/interaction/src/group-store.ts)，默认实现保持逐字不变的行为，socket Transport 提供 broker 版本。于是 CG-3 跨得过进程边界：两个 worker 进程加入同一个组，每条消息恰好被一个成员持有。在此之前这条路径会**明确失败**（TR-4），因为认领表从未出过进程 |
+| ~~跨进程 Transport~~ | `@eapp/transport-socket`：一个 broker 进程独占位置分配，其余进程通过 TCP 拿到一个**真正的** `SocketTransport`（v3.1 + v3.2 全部方法）。它把 `durabilityBoundary` 诚实地声明为 `'machine'` —— 同一台机器上的每个进程都看得到，但它不持久、也不跨集群。`examples/cross-process/` 用四个真进程验证 |
+| ~~跨进程的 ConsumerGroup~~ | 竞争状态（组游标 + 认领表）从进程内内存提取为可注入的 `GroupStore`，默认实现保持逐字不变的行为，socket Transport 提供 broker 版本。于是 CG-3 跨得过进程边界。在此之前这条路径会**明确失败**（TR-4），因为认领表从未出过进程 |
+| ~~跨进程的请求分发~~ | 两处：`registerRemote()` / `runtime.hosts()` 把"**可寻址**"与"**本进程执行**"分开（此前调用方的 dispatcher 会为别人的 provider 抢答 `EAPP_CAPABILITY_NOT_EXPOSED`），`runtime.serve()` 是 provider 进程的入口。**每个 Channel 恰好一个服务者**由 broker 的服务者角色仲裁（`ServerRoleProvider`），连接断开即释放。两个进程同时 serve 是明确失败，不是 handler 执行两次 |
 | ~~TR-4 部分未落实~~ | `assertTransportSupportsDelivery()` 在 `createChannel` 中校验 `capabilities.delivery`。未声明 `atLeastOnce` 的 Transport 不能承载 `stream` / `state` Channel —— 而这正是 TR-3「MUST NOT 伪装支持」要防的事 |
 | ~~`EAPP_CHANNEL_DRAINING` 不可达~~ | `ChannelImpl.requireActive()` 现在把三种状态区分开：`CLOSED` → `EAPP_CHANNEL_CLOSED`，`DRAINING` → `EAPP_CHANNEL_DRAINING`，`OPEN` → `EAPP_CHANNEL_INVALID`。并且它被真正调用了：`runtime.publish()` / `subscribe()` 在 DRAINING 的 Channel 上会失败 —— 这是 CC-2 + §2.4「DRAINING = 停止接收新消息」的直接后果 |
 | ~~`EAPP_CURSOR_INVALID` 不可达~~ | `MemoryTransport` 校验收到的 cursor 必须由本实例签发（`readAfter` / `readChangesAfter` / `resolveAnchor`）。接受一个外来 cursor 会静默读到错的位置，或什么都读不到 |

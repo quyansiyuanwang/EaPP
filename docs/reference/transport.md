@@ -36,6 +36,25 @@ Interaction Layer 在存在时使用它；`durabilityBoundary` 比 `'process'` �
 而这组成员缺失时，`openConsumerGroup()` 抛 `EAPP_UNSUPPORTED`
 （TR-4：宁可明确失败，不静默降级）。规则是"谁拥有什么"只能在数据所在的一侧决定。
 
+### 可选扩展：Channel 的服务者角色
+
+同一个原则，另一处应用。request 模式假设**恰好一个**进程应答一个 Channel。
+两个进程都跑 dispatcher 时，两个都会执行 handler，而重复的那条回复会被
+correlation tracker 当作重复响应丢掉 —— 调用方看到的是一个完全正常的回答，
+**副作用却发生了两次**。
+
+```typescript
+readonly sharesServerRole: boolean;
+claimServerRole(channel: string): Promise<boolean>;    // 已被别人持有则 false
+releaseServerRole(channel: string): Promise<void>;
+```
+
+角色由**连接**持有：服务方进程消失时角色自动归还，不需要任何人注意到 ——
+和组认领在连接断开时释放是同一个机制。
+
+> 两处扩展都是**可选的**，都不属于冻结的 v3.1 §10 接口。Transport 声明自己具备，
+> 上层在存在时使用；不存在时不假装具备，而是走单进程的假设，或明确拒绝。
+
 ---
 
 ## 签名

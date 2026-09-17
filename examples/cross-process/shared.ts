@@ -11,11 +11,15 @@ import type { ChannelMode, EappRuntime } from '../../packages/runtime/src/index.
 
 export const ORDERS = { name: 'orders.feed', version: '1.0.0' };
 export const COUNTER = { name: 'orders.counter', version: '1.0.0' };
+export const PRICING = { name: 'pricing.quote', version: '1.0.0' };
 
 /** Identities, written out identically in every process. */
 export const SHOP = { domain: 'acme.shop', id: 'shop', instance: 'shop-1' };
 export const FULFILMENT = { domain: 'acme.shop', id: 'fulfilment', instance: 'fulfilment-1' };
 export const LEDGER = { domain: 'acme.shop', id: 'ledger', instance: 'ledger-1' };
+/** Provides `pricing.quote`, and is executed in its own process. */
+export const PRICING_PROVIDER = { domain: 'acme.shop', id: 'pricing', instance: 'pricing-1' };
+export const CHECKOUT = { domain: 'acme.shop', id: 'checkout', instance: 'checkout-1' };
 
 /**
  * The binding both sides use for the shared counter.
@@ -26,6 +30,15 @@ export const LEDGER = { domain: 'acme.shop', id: 'ledger', instance: 'ledger-1' 
  * its own pair rather than sharing the orders one.
  */
 export const COUNTER_BINDING = { from: LEDGER, to: FULFILMENT, capability: COUNTER };
+
+/**
+ * The binding for the request-mode call, shared for the same reason.
+ *
+ * `from` is the provider because that is what a Binding means (v3.0 §4.4). Note
+ * that `invoke()` takes the opposite order — its `from` is the caller — which is
+ * the one place these names mean different things on the two sides.
+ */
+export const PRICING_BINDING = { from: PRICING_PROVIDER, to: CHECKOUT, capability: PRICING };
 
 /**
  * How a Channel is named.

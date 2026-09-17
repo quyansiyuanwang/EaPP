@@ -27,11 +27,14 @@ import { EappRuntime } from '../../packages/runtime/src/index.js';
 import { SocketTransport } from '../../packages/transport/socket/src/index.js';
 
 import {
+  CHECKOUT,
   COUNTER,
   COUNTER_BINDING,
   FULFILMENT,
   LEDGER,
   ORDERS,
+  PRICING,
+  PRICING_PROVIDER,
   SHOP,
   channelId,
   type Order,
@@ -291,17 +294,68 @@ async function main(): Promise<void> {
     console.log('  组之间：每个组收到全部消息；组之内：每条只交给一个成员（§8.1）。');
 
     // -----------------------------------------------------------------------
-    banner('6. 还需要什么');
+    banner('6. 请求/响应也跨过去了');
     // -----------------------------------------------------------------------
 
-    console.log('  竞争状态之所以跨得过去，是因为它被搬到了它必须待的地方：');
-    console.log('  broker。§8.3 说"一次 claim 就是一次 Lease"，而 Lease 要有意义，');
-    console.log('  就必须和消息处在同一个所有权域里 —— 数据在哪，"谁持有"就得在哪决定。');
+    const pricingChild = launch('provider.ts', 'pricing', ['--port', String(port)]);
+    workers.push(pricingChild);
+    const pricingReady = await waitForLine(pricingChild, 'ready');
+    console.log(`  provider 进程 pid=${String(pricingReady?.pid)}  channel=${String(pricingReady?.channel)}`);
+
+    // 本进程注册它，但**不承载**它。
+    //
+    // 这一条区别是整个改动的一半。以前"注册了"等于"我执行它"，于是调用方的
+    // dispatcher 找不到 handler，会立刻回一个 EAPP_CAPABILITY_NOT_EXPOSED ——
+    // 从它自己的角度看完全正确，却会和真正的提供方抢答，谁先到谁赢。
+    const pricing = runtime.registerRemote({ identity: PRICING_PROVIDER, capabilities: [PRICING] });
+    const checkout = runtime.register({
+      manifest: { identity: CHECKOUT, capabilities: [] },
+    });
+    await runtime.activate(pricing);
+    await runtime.activate(checkout);
+
+    check('本进程可寻址它，但不承载它', !runtime.hosts(pricing), runtime.hosts(pricing));
+
+    // invoke 的 from 是**调用方**，to 是**提供方** —— 与 connect 相反。
+    const quote = await runtime.invoke({
+      from: checkout,
+      to: pricing,
+      capability: PRICING,
+      payload: { quantity: 3, unit: 25 },
+    });
+
+    const pricingCalls = linesOfType(pricingChild, 'call');
+    console.log(`  invoke pricing.quote → ${JSON.stringify(quote)}`);
+    console.log(`  提供方进程收到 ${pricingCalls.length} 次调用，pid=${String(pricingCalls[0]?.pid)}`);
+
+    check('回复来自另一个进程的 handler', (quote as { servedBy?: number })?.servedBy === pricingReady?.pid, quote);
+    check('handler 恰好执行一次', pricingCalls.length === 1, pricingCalls.length);
+    check(
+      'handler 跑在提供方进程里',
+      pricingCalls[0]?.pid === pricingReady?.pid,
+      [pricingCalls[0]?.pid, pricingReady?.pid],
+    );
+    console.log('  —— handler 在**另一个进程**里执行，回复经 Channel 回来。');
+    console.log('  请求路由不需要协议新概念：一条 Binding、一条 Channel、一次 invoke。');
+
+    // -----------------------------------------------------------------------
+    banner('7. 这一路都需要什么');
+    // -----------------------------------------------------------------------
+
+    console.log('  三样东西跨过去了，用的都是同一条原则 ——');
+    console.log('  **"谁拥有什么"只能在数据所在的那一侧决定**：');
     console.log('');
-    console.log('  仍然只在单进程内成立的是**请求分发**：runtime.invoke() 的 dispatcher');
-    console.log('  跑在调用方进程里，只能服务本进程注册的插件。跨进程的 request/response');
-    console.log('  需要提供方一侧也跑 dispatcher，而那又需要"每个 Channel 恰好一个服务者"');
-    console.log('  的协调 —— 同一个问题的另一种形态，还没有解决。');
+    console.log('    位置分配   broker 独占发号，客户端 adopt 它的 id');
+    console.log('    Channel 名  由 Binding 推导，每个进程都算得出同一个');
+    console.log('    竞争认领   和消息一起待在 broker 里');
+    console.log('    服务者身份 同样由 broker 仲裁，连接断开即释放');
+    console.log('');
+    console.log('  漏掉任何一条，错误都是**安静的** —— 这正是它们值得被逐条命名的原因。');
+    console.log('  位置撞车 = readAfter 返回无意义的结果；Channel 名撞车 = 各自读自己那本日志；');
+    console.log('  认领不共享 = 每条消息处理两次；服务者重复 = handler 跑两次而调用方看不出。');
+
+    signalStop(pricingChild);
+    await waitForLine(pricingChild, 'done');
 
     await runtime.shutdown();
   } finally {
@@ -319,8 +373,8 @@ async function main(): Promise<void> {
   }
   console.log(`自检: ${checked} 条断言全部通过`);
   console.log('');
-  console.log('位置、顺序、CAS、投递保证，以及竞争所有权 —— 都跨过去了。');
-  console.log('剩下的只有请求分发。');
+  console.log('位置、顺序、CAS、投递保证、竞争所有权、请求路由 —— 都跨过去了。');
+  console.log('每一处都遵循同一条原则：谁拥有什么，只能在数据所在的那一侧决定。');
 }
 
 main().catch((error: unknown) => {

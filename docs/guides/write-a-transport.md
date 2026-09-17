@@ -852,6 +852,21 @@ Interaction Layer 在存在时使用它。**不提供的时候它不会退回到
 而那个地方必须在数据的同一侧。** 位置分配、Channel 命名、原子性、认领表 ——
 四个都是这个形状，漏掉任何一个，错误都是安静的。
 
+**⑤ 同一个形状还有第五处：谁应答。** request 模式假设恰好一个进程服务一个 Channel。
+两个进程都跑 dispatcher 时，两边都会执行 handler；重复的那条回复被 correlation
+tracker 当作重复响应丢掉，于是**调用方看到一个完全正常的回答，而副作用发生了两次**。
+
+所以还有第二组可选成员：
+
+```typescript
+readonly sharesServerRole: true;
+claimServerRole(channel: string): Promise<boolean>;   // 已被别人持有则 false
+releaseServerRole(channel: string): Promise<void>;
+```
+
+角色由**连接**持有 —— 服务方进程消失时自动归还，不需要任何人注意到。
+抢不到的一方由 `runtime.serve()` 报错，而不是悄悄少服务一半请求。
+
 ---
 
 ## 8. 修订顺序不是全序时：`supportsStateRevision: false`

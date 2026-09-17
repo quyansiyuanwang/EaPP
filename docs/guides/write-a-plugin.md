@@ -414,6 +414,48 @@ dispatcher 读回来交给 handler —— 这样才真正跑过了三层。它�
 如果响应已经在 Transport 里等待被读走，`invoke` 会先结算成功。
 要观察超时，让 handler 的耗时明确大于 `timeoutMs`。
 
+### 6.1 provider 在别的进程里
+
+v3.0 §5.2 拒绝要求每个 Plugin 具有相同的实现形态 —— 它可以是进程内模块、
+**独立进程**、worker、远程服务。上面所有内容默认了第一种。换第二种时，
+两件事必须显式说出来，因为它们原本是隐式的：
+
+```typescript
+// 调用方：注册它，但不执行它
+const pricing = runtime.registerRemote({
+  identity: { domain: 'acme.shop', id: 'pricing', instance: 'pricing-1' },
+  capabilities: [{ name: 'pricing.quote', version: '1.0.0' }],
+});
+await runtime.activate(pricing);
+```
+
+```typescript
+// 提供方进程：注册它，并且**服务**它
+const pricing = runtime.register({
+  manifest: { identity: { /* 同上 */ }, capabilities: [PRICING] },
+  handlers: { 'pricing.quote': async (payload) => { /* 真的跑在这里 */ } },
+});
+const caller = runtime.register({ manifest: { identity: CHECKOUT, capabilities: [] } });
+await runtime.activate(pricing);
+await runtime.activate(caller);
+await runtime.serve({ from: pricing, to: caller, capability: PRICING });   // ← 关键
+```
+
+**`register` 与 `registerRemote` 的区别是"可寻址"与"本进程执行"。**
+一个进程里这两件事重合，所以这个区别一直看不见。分开之后它立刻显形：
+调用方的 dispatcher 若替别人的 provider 应答，会抢在真正的回复前面回一个
+`EAPP_CAPABILITY_NOT_EXPOSED` —— 从它自己的角度完全正确，对调用方却是一个错的答案。
+`runtime.hosts(ref)` 可以问出这个区别。
+
+**`serve()` 只在提供方进程调用，而且每个 Channel 只能有一个。**
+两个进程同时服务同一个 Channel 时，两边都会执行 handler，重复的回复被
+correlation tracker 当作重复响应丢掉 —— 调用方看到一个正常的回答，而副作用发生了两次。
+所以服务者身份由 Transport 仲裁（`ServerRoleProvider`），抢不到的一方
+`serve()` 直接失败。
+
+完整可跑的例子见 [`examples/cross-process/`](../../examples/cross-process/index.ts)：
+broker 进程 + 两个 worker 进程 + 一个 provider 进程 + 调用方进程。
+
 ---
 
 ## 7. 错误如何浮现
