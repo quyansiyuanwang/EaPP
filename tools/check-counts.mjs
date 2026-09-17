@@ -129,6 +129,58 @@ for (const rel of DOCS) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Harness check counts
+// ---------------------------------------------------------------------------
+
+/**
+ * The same class of scattered number, one layer down.
+ *
+ * How many checks the harness runs per layer appeared in five documents, and the
+ * phrase "33 checks × 2 implementations" had to be deleted from all of them the
+ * moment one driver covered two layers. `run.mjs --list` already computes the real
+ * figures and needs no driver, so the prose can be compared against it.
+ */
+function harnessCounts() {
+  const output = execFileSync('node', [path.join(ROOT, 'conformance', 'harness', 'run.mjs'), '--list'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  });
+  const counts = new Map();
+  let current = null;
+  for (const line of output.split(/\r?\n/)) {
+    const heading = line.match(/^(\w+)\s*$/);
+    if (heading) {
+      current = heading[1];
+      continue;
+    }
+    const perLayer = line.match(/^\s*(\d+)\s+check\(s\)\s*$/);
+    if (perLayer && current) counts.set(current, Number(perLayer[1]));
+  }
+  return counts;
+}
+
+const checks = harnessCounts();
+
+for (const rel of DOCS) {
+  const text = readFileSync(path.join(ROOT, rel), 'utf8');
+  text.split(/\r?\n/).forEach((raw, index) => {
+    const line = index + 1;
+    const tag = `**${raw.trim().slice(0, 90)}**`;
+
+    // `| \`core\` | 33 | … |` in the coverage table.
+    const row = raw.match(/^\|\s*`?(\w+)`?\s*\|\s*(\d+)\s*\|/);
+    if (row && checks.has(row[1])) {
+      check(rel, line, tag, Number(row[2]), checks.get(row[1]));
+    }
+
+    // `core 33 项 + interaction 46 项` in prose.
+    for (const m of raw.matchAll(/\b(\w+)\s+(\d+)\s*项/g)) {
+      if (checks.has(m[1])) check(rel, line, tag, Number(m[2]), checks.get(m[1]));
+    }
+  });
+}
+
 if (process.argv.includes('--json')) {
   process.stdout.write(`${JSON.stringify({ totals: { totalDeclared, totalCovered }, problems }, null, 2)}\n`);
   process.exit(problems.length === 0 ? 0 : 1);
