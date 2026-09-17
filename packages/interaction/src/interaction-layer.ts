@@ -93,8 +93,18 @@ interface GroupHandle {
 export interface InteractionLayerOptions {
   transport: Transport;
   bindings?: BindingSource;
-  /** Injectable id source for deterministic tests. */
-  nextId?: () => string;
+  /**
+   * Injectable id source for deterministic tests.
+   *
+   * It receives the channel-creation request deliberately. A Channel's id is the
+   * key its messages are stored under, so when two runtimes share one transport —
+   * two processes, say — they have to agree on that key. A counter cannot: each
+   * runtime would hand out `ch-1` for its own first channel and the two would
+   * silently be talking about different logs. Deriving the id from the binding and
+   * mode makes it the same everywhere, which is what a Channel being *derived from
+   * a Binding* actually implies.
+   */
+  nextId?: (request: CreateChannelRequest) => string;
 }
 
 let channelSeq = 0;
@@ -102,7 +112,7 @@ let channelSeq = 0;
 export class InteractionLayerImpl implements InteractionLayer {
   readonly #transport: Transport;
   readonly #bindings: BindingSource | undefined;
-  readonly #nextId: () => string;
+  readonly #nextId: (request: CreateChannelRequest) => string;
   readonly #channels = new Map<string, ChannelImpl>();
   /** channelId -> group name -> handle. Names are unique per Channel (CG-1). */
   readonly #groups = new Map<string, Map<string, GroupHandle>>();
@@ -172,7 +182,7 @@ export class InteractionLayerImpl implements InteractionLayer {
     // happily carry a channel that promised at-least-once — the one thing TR-3 forbids.
     assertTransportSupportsDelivery(this.#transport, delivery);
 
-    const id = this.#nextId();
+    const id = this.#nextId(request);
     if (this.#channels.has(id)) {
       throw new EappError('EAPP_CHANNEL_INVALID', `channel id '${id}' is already in use`);
     }
@@ -225,6 +235,28 @@ export class InteractionLayerImpl implements InteractionLayer {
     deps: ConsumerGroupDeps = {},
   ): Promise<ConsumerGroup<T>> {
     this.#require(channelId); // CG-7: the Channel must exist
+
+    // §8.3: a claim IS a Lease, and L-2 ("the same cursor MUST NOT be held by two
+    // ACTIVE leases") is what makes CG-3 true. In this implementation the claim
+    // registry is process-local memory.
+    //
+    // That is coherent only while one process is the whole audience. Over a
+    // transport whose messages outlive and outrun this process, two members in two
+    // processes would each be told they hold the same position, every message would
+    // be delivered to both, and CG-3 would be violated without anyone seeing an
+    // error. Silent degradation is exactly what TR-4 forbids, so refuse.
+    //
+    // This is a statement about THIS implementation's claim registry, not about the
+    // transport: a transport that also shares the registry would lift the refusal.
+    const boundary = this.#transport.capabilities.durabilityBoundary;
+    if (boundary !== 'process') {
+      throw new EappError(
+        'EAPP_UNSUPPORTED',
+        `competing consumption is unavailable on transport ${this.#transport.id}: its ` +
+          `durability boundary is '${boundary}', but this implementation's claim registry ` +
+          `is process-local, so CG-3 could not be guaranteed`,
+      );
+    }
 
     const byName = this.#groups.get(channelId) ?? new Map<string, GroupHandle>();
     this.#groups.set(channelId, byName);

@@ -88,6 +88,24 @@ export interface EappRuntimeOptions {
   owner?: Identity;
   domain?: string;
   defaultTimeoutMs?: number;
+  /**
+   * How Channels are named. Defaults to a per-runtime counter.
+   *
+   * This exists for the case where one transport is shared by several runtimes —
+   * several processes, typically. A Channel's id is the key its messages live under,
+   * so runtimes that do not agree on it are not sharing a log: they are each writing
+   * to their own and coincidentally giving them the same name.
+   *
+   * `binding` is supplied because it is the only thing that is genuinely shared.
+   * `bindingId` and the default counter are both per-runtime, so deriving the id from
+   * the binding's `from` / `to` / `capability` is what makes every participant
+   * arrive at the same key.
+   */
+  channelId?: (context: {
+    bindingId: string;
+    mode: ChannelMode;
+    binding: Binding | undefined;
+  }) => string;
 }
 
 /** A delivered message together with the v3.1 AckContext that resolves it. */
@@ -183,6 +201,16 @@ export class EappRuntime {
         onBindingStateChange: (listener) =>
           this.core.onBindingStateChange((binding, state) => listener(binding.id, state)),
       },
+      ...(options.channelId
+        ? {
+            nextId: (request: { binding: string; mode: ChannelMode }) =>
+              options.channelId!({
+                bindingId: request.binding,
+                mode: request.mode,
+                binding: this.core.binding(request.binding),
+              }),
+          }
+        : {}),
     });
   }
 
