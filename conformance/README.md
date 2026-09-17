@@ -44,10 +44,20 @@ conformance/
 
 ## 覆盖了什么，没覆盖什么
 
-检查项共 **33** 条，覆盖 v3.0 §13 的 51 条不变量中的 **40** 条。
+检查项按层组织，driver 只跑它声明的层 —— 只实现 Composition Core 的实现
+不会被 Interaction 层的检查判为失败，因为它并没有声明支持那一层。
+
+| 层 | 检查项 | 覆盖的不变量 |
+|---|---|---|
+| `core` | 33 | v3.0 §13 的 51 条中的 40 条 |
+| `interaction` | 46 | v3.1 §14 的 75 条中的 45 条 |
+
+**两个 driver 跑的数量不同**（Go 33、TypeScript 79），因为它们的 `layers` 不同。
+所以"33 条检查 × 2 套实现"这个说法已经不再成立，也不该被写回去。
+
 **逐条列清楚，比给一个覆盖率数字有用。**
 
-### 已覆盖
+### core：已覆盖
 
 | 组 | 不变量 |
 |---|---|
@@ -63,7 +73,7 @@ conformance/
 覆盖 40 条中的一部分是"部分覆盖" —— D-1 / D-2 的 Trust Scope 那一半需要一套信任策略
 fixture，driver 协议目前没有暴露它。
 
-### 没有覆盖，以及为什么
+### core：没有覆盖，以及为什么
 
 | 不变量 | 为什么检查不了 |
 |---|---|
@@ -71,16 +81,46 @@ fixture，driver 协议目前没有暴露它。
 | C-5 CapabilityRef MUST include version | 每个 `bind` 都带 version，所以"少了会怎样"需要一条协议里不存在的请求形状 |
 | P-4 Capability set MAY change via explicit declaration | `plugin.register` 是唯一的声明入口，没有"重新声明"的操作 |
 | B-7 `capability.plugin` MUST equal `from` | 这是内部表示的一致性要求。可以让 driver 把 `capability.plugin` 吐出来检查，但那就把一条内部形状变成了跨实现要求 |
-| **B-8 uniqueness check + creation MUST be atomic** | 外部 driver 是串行的（stdio 上一条请求一条响应），所以并发 `bind` 根本走不到。参考实现有一个 `go test`/单元测试专门打它（`packages/core`），但**跨实现的检查做不到** —— 要给 driver 协议加一个"并发发起 N 个请求"的形状才行 |
+| **B-8 uniqueness check + creation MUST be atomic** | 外部 driver 是串行的（stdio 上一条请求一条响应），所以并发 `bind` 根本走不到。参考实现有一个单元测试专门打它，但**跨实现的检查做不到** —— 要给 driver 协议加一个"并发发起 N 个请求"的形状才行 |
 | B-9 PENDING Binding MUST NOT be externally observable | 中间状态按定义观察不到 |
-| D-4 Discovery MAY cache | MAY 不是 MUST，缓存与否是实现的自由；参考实现有 `cacheStats()`，但那不是规范形状 |
-| 未读的 watch 队列无界增长 | `watch` 的队列是每条 watcher 一个、不设上限的。消费者停止迭代却又不 `close()` 时，事件会一直堆积。规范没有规定丢弃策略，所以**这里也不发明一条** —— 那会让别的实现在一条无从检查的规则下被静默丢事件。关闭是消费者的责任 |
+| D-4 Discovery MAY cache | MAY 不是 MUST，缓存与否是实现的自由 |
+| 未读的 watch 队列无界增长 | 规范没有规定丢弃策略，所以这里也不发明一条 —— 那会让别的实现在一条无从检查的规则下被静默丢事件 |
 | D-7 Trust level MUST NOT imply ordered authorization | 需要一个会做授权的实现才能看出顺序；本层不做授权 |
-| CH-1 Core MUST NOT define Channel semantics | 一个否定性的结构主张，不是运行时可观察的行为 |
-| BR-1 / BR-2 | BR-1 要有"一个不存在的根被换掉"的路径，BR-2 要检查依赖关系图。BR-3 能查，另外两条不能 |
+| CH-1 Core MUST NOT define Channel semantics | 一个否定性的结构主张，不是运行时可观察的行为。注意它与 v3.1 的 `CH-1` 同名不同义，两层各自编号 |
+| BR-1 / BR-2 | BR-1 要有"一个不存在的根被换掉"的路径，BR-2 要检查依赖关系图 |
+
+### interaction：已覆盖
+
+| 组 | 不变量 |
+|---|---|
+| Channel | CH-1、CH-2、CH-3、CH-4、CH-5、CH-6 |
+| 创建路径 | CC-2（含 DORMANT→DRAINING→ACTIVE）、CC-3、CC-4、CC-5、CC-6、CC-7、CC-8、CC-9 |
+| Cursor | CR-1、CR-3、CR-4 |
+| Subscription | SUB-1、SUB-2、SUB-3、SUB-4、SUB-5、SUB-6、SUB-7、SUB-8、SUB-9 |
+| Ack / Nack | AK-1、AK-2、AK-3、AK-4、AK-5 |
+| ConsumerGroup | CG-1、CG-2、CG-3、CG-4、CG-5、CG-6、CG-7 |
+| Transport | TR-5、TR-6、TR-7、TR-8、TR-9 |
+| 模式 | EV-1、ST-1、ST-3 |
+| Delivery | DL-6（与 CC-5 合并为一条检查） |
+
+### interaction：没有覆盖，以及为什么
+
+| 不变量 | 为什么检查不了 |
+|---|---|
+| CR-2 Cursor MUST be persistable and recoverable | 要求重启一个实现并观察它从闭区间恢复。「重启」在 driver 协议里不存在 |
+| CR-5 / TR-9 的 cursor 分支 | 需要一份 `supportsCursor: false` 的实现。仓库里没有，而给 driver 加一个"假装不支持"的开关会让检查测到开关本身 |
+| CC-1 | 与 CH-1、CC-6、CC-7 是同一件事的三种说法，已由后者覆盖；不重复声明 |
+| CG-8 | 由 SUB-4（mode group 必须指名非空 group）与 CG-1 共同覆盖；单独一条需要"加入一个不存在的组"的形状，而 driver 的 `subscription.open` 会创建组 |
+| RQ-1 … RQ-4 | request 模式的 correlationId 与 deadline 语义在 runtime 的调用路径上，v3.1 §3 只是形状。driver 协议没有暴露 `invoke` —— 那会把 runtime 的编排搬进驱动层 |
+| EV-2 / EV-3 | "event 的投递 MAY 为零次 / 多次"是 MAY。检查 MAY 只能检查"不禁止"，而那是恒真的 |
+| ST-2 / ST-4 | 与 CR-4 / CR-3 同源，已由它们覆盖 |
+| DL-1 … DL-5 | 投递保证本身在传输层；driver 暴露的是 Channel 的 `delivery` 声明，其相容性由 DL-6 检查 |
+| L-1 … L-7 Lease | Lease 是 Subscription 与 ConsumerGroup 的实现机制，不是它们暴露的形状。要单独检查它，driver 需要暴露 Lease 句柄 —— 那会要求每个实现都把 Lease 做成可寻址的实体，而规范没有要求 |
+| TR-1 … TR-4 | 与 v3.0 的 CH-1 同类：否定性的结构主张。TR-2 的能力声明由 TR-9 检查形状 |
 
 **缺口写在这里而不是藏起来，是因为它们比通过的部分更需要被知道。**
-B-8 是其中一例：它是一条并发正确性要求，而外部 harness 在结构上看不到它。
+两处最值得注意：`B-8` 是一条并发正确性要求而外部 harness 在结构上看不到它；
+`CR-2` 要求重启一个实现，而 driver 协议没有重启这个概念。
 
 ---
 

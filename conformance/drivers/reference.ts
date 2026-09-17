@@ -26,6 +26,18 @@ import {
   type Identity,
   type Plugin,
 } from '../../packages/core/src/index.js';
+import {
+  InteractionLayerImpl,
+  TransportSubscription,
+  type ChannelMode,
+  type ConsumerGroup,
+  type DeliveryGuarantee,
+  type ManagedChannel,
+  type Subscription,
+  type SubscriptionOptions,
+  type SubscriptionSource,
+} from '../../packages/interaction/src/index.js';
+import { MemoryTransport } from '../../packages/transport/memory/src/index.js';
 
 // ---------------------------------------------------------------------------
 // Protocol plumbing
@@ -64,6 +76,34 @@ const toCapabilities = (value: unknown): Plugin['capabilities'] => {
 };
 
 // ---------------------------------------------------------------------------
+// Interaction: what the wire has to stand in for
+// ---------------------------------------------------------------------------
+
+/** A delivered item, as v3.1 §7.1 defines it: a payload with its own AckContext. */
+interface Delivered {
+  cursor: string;
+  payload: unknown;
+  ack(): Promise<void>;
+  nack(): Promise<void>;
+}
+
+/**
+ * A subscription plus the in-flight `next()`.
+ *
+ * The spec models consumption as an async iterator; the wire models it as `pull`. Those
+ * are not the same shape, and bridging them by calling `next()` per pull would queue a
+ * second read behind the first whenever a pull times out — so the outstanding read is
+ * held here and reused. A pull that times out leaves the read running; the next pull
+ * picks it up. That preserves "one reader per subscription" without inventing a
+ * cancellation the protocol does not have.
+ */
+interface SubHandle {
+  sub: Subscription<Delivered>;
+  iterator: AsyncIterator<Delivered>;
+  inFlight: Promise<IteratorResult<Delivered>> | null;
+}
+
+// ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
@@ -74,6 +114,15 @@ class Driver {
   #discovery: Discovery | undefined;
   #watches = new Map<number, { abort: AbortController }>();
   #watchSeq = 0;
+
+  #transport!: MemoryTransport;
+  #interaction!: InteractionLayerImpl;
+  #subs = new Map<string, SubHandle>();
+  #subSeq = 0;
+  #deliveries = new Map<string, Delivered>();
+  #deliverySeq = 0;
+  #groups = new Map<string, ConsumerGroup<Delivered>>();
+  #groupSeq = 0;
 
   constructor() {
     this.#reset();
@@ -87,6 +136,99 @@ class Driver {
     this.#core = createCompositionCore(this.#registry);
     this.#discovery = undefined;
     this.#watchSeq = 0;
+
+    this.#transport = new MemoryTransport();
+    this.#subs.clear();
+    this.#deliveries.clear();
+    this.#groups.clear();
+    this.#subSeq = 0;
+    this.#deliverySeq = 0;
+    this.#groupSeq = 0;
+
+    // The same wiring `EappRuntime` uses, and for the same reason: the core notifies
+    // with (binding, state) while the layer wants (bindingId, state). Adapting here
+    // keeps both layers' own shapes intact.
+    this.#interaction = new InteractionLayerImpl({
+      transport: this.#transport,
+      bindings: {
+        binding: (id) => this.#core.binding(id),
+        bindingState: (id) => (this.#core.binding(id) ? this.#core.bindingState(id) : 'CLOSED'),
+        onBindingStateChange: (listener) =>
+          this.#core.onBindingStateChange((binding, state) => listener(binding.id, state)),
+      },
+      nextId: (request) => `${request.binding}:${request.mode}`,
+    });
+  }
+
+  /**
+   * The channel's own subscription source, built exactly as the facade builds it.
+   *
+   * A plugin author never hand-rolls this; the driver should not either, or the driver
+   * would be part of what conforms.
+   */
+  #sourceFor(channelId: string): SubscriptionSource<Delivered> {
+    const transport = this.#transport;
+    return {
+      head: async () =>
+        (transport.resolveAnchor ? await transport.resolveAnchor(channelId, 'latest') : '') ?? '',
+      earliest: async () =>
+        (transport.resolveAnchor ? await transport.resolveAnchor(channelId, 'earliest') : '') ?? '',
+      readAfter: async (cursor, ack) => {
+        const messages = await transport.readAfter(channelId, cursor, { all: true });
+        return messages.map((message) => {
+          // Binding the ack context to the message is what makes the delivered item a
+          // v3.1 AckContext rather than a bare payload: only ack moves the cursor.
+          const context = ack(message.cursor);
+          return {
+            cursor: message.cursor,
+            item: {
+              cursor: message.cursor,
+              payload: message.payload,
+              ack: () => context.ack(),
+              nack: () => context.nack(),
+            },
+          };
+        });
+      },
+      ...(transport.waitForChange
+        ? {
+            waitForChange: (cursor: string, signal: AbortSignal) =>
+              transport.waitForChange?.(channelId, cursor, signal) ?? Promise.resolve(),
+          }
+        : { pollIntervalMs: 10 }),
+    };
+  }
+
+  #sub(token: string): SubHandle {
+    const handle = this.#subs.get(token);
+    if (!handle) throw new EappError('EAPP_SUBSCRIPTION_INVALID', `unknown subscription '${token}'`);
+    return handle;
+  }
+
+  /** One pull: reuse the outstanding read if there is one, otherwise start one. */
+  async #pull(handle: SubHandle, timeoutMs: number): Promise<{ item: Delivered | null; done: boolean }> {
+    handle.inFlight ??= handle.iterator.next();
+    const read = handle.inFlight;
+
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), timeoutMs);
+    });
+
+    try {
+      const outcome = await Promise.race([read, timeout]);
+      if (outcome === 'timeout') return { item: null, done: false };
+
+      handle.inFlight = null;
+      if (outcome.done === true) return { item: null, done: true };
+      const item = outcome.value;
+      this.#deliverySeq += 1;
+      const token = `d-${this.#deliverySeq}`;
+      this.#deliveries.set(token, item);
+      return { item: { ...item, delivery: token } as Delivered & { delivery: string }, done: false };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   async handle(request: Request): Promise<unknown> {
@@ -234,9 +376,161 @@ class Driver {
         this.#discovery = new DiscoveryService(this.#registry);
         return { ok: true };
 
+      // ------------------------------------------------------ interaction: channel
+      case 'channel.create': {
+        const channel = await this.#interaction.createChannel({
+          binding: String(request.binding),
+          mode: request.mode as ChannelMode,
+          ...(request.delivery === undefined
+            ? {}
+            : { delivery: request.delivery as DeliveryGuarantee }),
+        });
+        return toChannel(channel);
+      }
+
+      case 'channel.connect': {
+        const channel = this.#channel(request.channel);
+        await channel.connect();
+        return toChannel(channel);
+      }
+
+      case 'channel.get':
+        return toChannel(this.#channel(request.channel));
+
+      case 'channel.channels':
+        return this.#interaction.listChannels().map(toChannel);
+
+      case 'channel.send': {
+        const channel = this.#channel(request.channel);
+        channel.requireActive('send');
+        // Sending goes through the transport, because that is who assigns cursors
+        // (TR-8). The Channel decides whether sending is allowed; the Transport decides
+        // where the message lands.
+        return { cursor: await this.#transport.send(channel.id, request.payload) };
+      }
+
+      case 'channel.close':
+        await this.#interaction.closeChannel(String(request.channel));
+        return {};
+
+      // ------------------------------------------------- interaction: subscription
+      case 'subscription.open': {
+        const channelId = String(request.channel);
+        const options = (request.options ?? {}) as SubscriptionOptions;
+        this.#channel(channelId).requireActive('subscribe');
+
+        const sub =
+          options.mode === 'group'
+            ? await this.#interaction.joinConsumerGroup<Delivered>(channelId, String(options.group))
+            : await TransportSubscription.create<Delivered>(
+                channelId,
+                options,
+                this.#sourceFor(channelId),
+              );
+
+        const token = `s-${(this.#subSeq += 1)}`;
+        this.#subs.set(token, { sub, iterator: sub[Symbol.asyncIterator](), inFlight: null });
+        return {
+          subscription: token,
+          cursor: sub.cursor,
+          mode: sub.mode,
+          state: sub.state,
+        };
+      }
+
+      case 'subscription.pull': {
+        const handle = this.#sub(String(request.subscription));
+        const timeoutMs = Number(request.timeoutMs ?? 1_000);
+        return this.#pull(handle, Number.isFinite(timeoutMs) ? timeoutMs : 1_000);
+      }
+
+      case 'subscription.ack':
+      case 'subscription.nack': {
+        this.#sub(String(request.subscription)); // the token must belong to a live subscription
+        const delivered = this.#deliveries.get(String(request.delivery));
+        if (!delivered) {
+          throw new EappError('EAPP_LEASE_CLOSED', `unknown delivery '${String(request.delivery)}'`);
+        }
+        await (op === 'subscription.ack' ? delivered.ack() : delivered.nack());
+        return {};
+      }
+
+      case 'subscription.state': {
+        const handle = this.#sub(String(request.subscription));
+        return { state: handle.sub.state, cursor: handle.sub.cursor };
+      }
+
+      case 'subscription.suspend':
+        await this.#sub(String(request.subscription)).sub.suspend();
+        return {};
+
+      case 'subscription.resume':
+        await this.#sub(String(request.subscription)).sub.resume();
+        return {};
+
+      case 'subscription.close':
+        await this.#sub(String(request.subscription)).sub.close();
+        return {};
+
+      // ------------------------------------------------- interaction: group
+      case 'group.open': {
+        const channelId = String(request.channel);
+        this.#channel(channelId).requireActive('openConsumerGroup');
+        const group = await this.#interaction.openConsumerGroup<Delivered>(
+          channelId,
+          {
+            name: String(request.name),
+            ...(request.claimTtlMs === undefined
+              ? {}
+              : { claimTtlMs: Number(request.claimTtlMs) }),
+          },
+          this.#sourceFor(channelId),
+        );
+        const token = `g-${(this.#groupSeq += 1)}`;
+        this.#groups.set(token, group);
+        return toGroup(token, group);
+      }
+
+      case 'group.view': {
+        const token = String(request.group);
+        const group = this.#groups.get(token);
+        if (!group) throw new EappError('EAPP_SUBSCRIPTION_INVALID', `unknown group '${token}'`);
+        return toGroup(token, group);
+      }
+
+      case 'group.close': {
+        const token = String(request.group);
+        const group = this.#groups.get(token);
+        if (!group) throw new EappError('EAPP_SUBSCRIPTION_INVALID', `unknown group '${token}'`);
+        await group.close();
+        return {};
+      }
+
+      // ------------------------------------------------- interaction: transport
+      case 'transport.capabilities':
+        return this.#transport.capabilities;
+
+      case 'transport.send':
+        return { cursor: await this.#transport.send(String(request.channel), request.payload) };
+
+      case 'transport.readAfter': {
+        const cursor = request.cursor === undefined || request.cursor === null
+          ? undefined
+          : String(request.cursor);
+        const pattern = (request.pattern ?? { all: true }) as { all: true } | { type: string };
+        const messages = await this.#transport.readAfter(String(request.channel), cursor, pattern);
+        return messages.map((message) => ({ cursor: message.cursor, payload: message.payload }));
+      }
+
       default:
         throw new EappError('EAPP_UNSUPPORTED', `unknown driver operation '${op}'`);
     }
+  }
+
+  #channel(id: unknown): ManagedChannel {
+    const channel = this.#interaction.channel(String(id));
+    if (!channel) throw new EappError('EAPP_CHANNEL_INVALID', `unknown channel '${String(id)}'`);
+    return channel;
   }
 
   #discoverySource(): Discovery {
@@ -259,6 +553,31 @@ function toStringBinding(binding: Binding): Record<string, unknown> {
   };
 }
 
+/** v3.1 §2.1, as the wire sees it. */
+const toChannel = (channel: ManagedChannel): Record<string, unknown> => ({
+  id: channel.id,
+  binding: channel.binding,
+  mode: channel.mode,
+  delivery: channel.delivery,
+  state: channel.state,
+});
+
+/**
+ * v3.1 §8.2, as the wire sees it.
+ *
+ * `cursor` and `memberCount` are frozen as *synchronous* properties, so this can only
+ * report what the group last observed. The harness is told the same thing in
+ * `conformance/driver.md`: it MUST NOT assert byte-equality with a global value across
+ * processes, because §8.2 does not promise that.
+ */
+const toGroup = (token: string, group: ConsumerGroup<Delivered>): Record<string, unknown> => ({
+  id: token,
+  name: group.name,
+  channel: group.channel,
+  cursor: group.cursor,
+  memberCount: group.memberCount,
+});
+
 // ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
@@ -270,8 +589,8 @@ const driver = new Driver();
 write({
   hello: true,
   driver: 'eapp-ts',
-  layers: ['core'],
-  eappVersion: '3.0.0',
+  layers: ['core', 'interaction'],
+  eappVersion: '3.3.0',
 });
 
 let buffered = '';

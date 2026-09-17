@@ -24,10 +24,10 @@ Go 那份是**从规范正文写出来的**：写它的人被明确禁止阅读 
 而那正是"两份证据"要排除的情况。
 
 ```bash
-pnpm run conformance:external     # 33 条检查 × 2 套实现
+pnpm run conformance:external     # 语言中立的 harness，按层运行
 ```
 
-`conformance/README.md` 逐条列出这 33 条覆盖了 v3.0 的 51 条不变量中的**哪 40 条**，
+`conformance/README.md` 逐条列出各层覆盖了哪些不变量，
 以及每一条没覆盖的**为什么**。
 
 ---
@@ -70,7 +70,7 @@ v3.2 没有定义独立的等级前缀（它的 §14 是不变量分组，不是
 ```bash
 pnpm install
 pnpm run verify               # typecheck + 测试 + 5 个示例 + 冻结闸门 + 链接闸门
-pnpm run conformance:external # 语言中立的 harness：33 条检查 × 2 套独立实现
+pnpm run conformance:external # 语言中立的 harness：按各 driver 声明的层运行
 pnpm run demo                 # 端到端演示：三个互不相识的插件
 ```
 

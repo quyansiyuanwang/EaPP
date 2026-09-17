@@ -59,7 +59,7 @@ pnpm run examples              5 个示例真的跑得起来，且各自的自�
 pnpm run check:invariants      冻结闸门：每条不变量至少一个测试
 pnpm run check:docs            文档闸门：链接、正文语域、参考页结构
 pnpm run check:duplicates      副本闸门：同一类型在各处的成员类型一致
-pnpm run conformance:external  跨实现一致性：33 条检查 × 2 套独立实现
+pnpm run conformance:external  跨实现一致性：按各 driver 声明的层运行
 ```
 
 最后一段会 `go run` 那个独立实现，所以**跑 verify 需要 Go 1.24+**。
@@ -77,7 +77,7 @@ pnpm test -- --watch                 # 监听模式
 
 **`conformance:external` 判定的是协议表面行为。** 该 harness 不引用任何 `@eapp/*`，
 因此参考实现的内部重构不触发失败，行为变更触发失败。手册见 [`conformance/README.md`](conformance/README.md)：
-覆盖了 51 条 v3.0 不变量中的哪 40 条，以及每一条没覆盖的**为什么**。
+覆盖了各层的哪些不变量，以及每一条没覆盖的**为什么**。
 
 ---
 

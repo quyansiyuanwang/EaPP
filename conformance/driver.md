@@ -155,6 +155,81 @@ harness 只按 `id` 配对，所以事件可以插在任意位置。
 harness 只检查它有初始 Discovery、且未知引用会被明确拒绝 ——
 **能检查的部分检查，不能检查的部分明说。**
 
+### Interaction：Channel 与消息
+
+| op | 参数 | 结果 |
+|---|---|---|
+| `channel.create` | `binding`（id）, `mode`, `delivery`? | `Channel`（状态 `OPEN`） |
+| `channel.connect` | `channel` | `Channel`（状态 `ACTIVE`） |
+| `channel.get` | `channel` | `Channel` |
+| `channel.channels` | — | `[Channel]` |
+| `channel.send` | `channel`, `payload` | `{"cursor":"…"}` |
+| `channel.close` | `channel` | `{}` |
+
+`Channel` 是 `{"id","binding","mode","delivery","state"}`（v3.1 §2.1）。
+`delivery` 省略时由实现选择，但 MUST 与 `mode` 相容（`DL-6`）。
+
+**`create` 与 `connect` 是两步**，因为 v3.1 §12 的路径就是两步：
+创建后的 Channel 处于 `OPEN`，`connect()` 之后进入 `ACTIVE`（`CC-8`）。
+这个区分是可以被检查的，所以协议 MUST NOT 把两步并成一步。
+
+### Interaction：Subscription
+
+| op | 参数 | 结果 |
+|---|---|---|
+| `subscription.open` | `channel`, `options`?（`mode` / `group` / `cursor`） | `{"subscription":"…","cursor":"…","mode":"…","state":"…"}` |
+| `subscription.pull` | `subscription`, `timeoutMs`? | `{"item":Item\|null,"done":bool}` |
+| `subscription.ack` | `subscription`, `delivery` | `{}` |
+| `subscription.nack` | `subscription`, `delivery` | `{}` |
+| `subscription.state` | `subscription` | `{"state":"…","cursor":"…"}` |
+| `subscription.suspend` | `subscription` | `{}` |
+| `subscription.resume` | `subscription` | `{}` |
+| `subscription.close` | `subscription` | `{}` |
+
+**`Item` 携带一个句柄，而不是一个 ack 回调：**
+
+```json
+{"delivery":"d-1","cursor":"…","payload":…}
+```
+
+`AckContext` 是一个带方法的活对象，跨进程无法传递（v3.1 §9）。
+协议把它建模为一个**不透明令牌**：`subscription.pull` 交出 `delivery`，
+`subscription.ack` / `subscription.nack` 以它为参数作用于同一个上下文。
+
+这与身份参数的教训是同一条：一条请求里两个同名但含义不同的字段，
+实现与 harness 都只能靠猜。**所以交付物有它自己的键名，不复用 `cursor` 或 `id`。**
+
+`item` 为 `null` 且 `done` 为 `false` 表示在 `timeoutMs` 内没有可交付项 ——
+它 MUST NOT 被当作错误（`TR-7` 的同一条原则：无匹配不是失败）。
+`done` 为 `true` 表示订阅已终止。
+
+`options.cursor` 是 `CursorAnchor`：`"earliest"` | `"latest"` | 具体 cursor 字符串。
+
+### Interaction：ConsumerGroup
+
+| op | 参数 | 结果 |
+|---|---|---|
+| `group.open` | `channel`, `name`, `claimTtlMs`? | `Group` |
+| `group.view` | `group` | `Group` |
+| `group.close` | `group` | `{}` |
+
+`Group` 是 `{"id","name","channel","cursor","memberCount"}`（v3.1 §8.2）。
+
+**`cursor` 与 `memberCount` 是同步属性。** §8.2 冻结了它们的形状，
+因此一个共享的组只能报告它最后一次看到的值 —— harness MUST NOT 断言
+它们在跨进程时与全局值逐字节相等。
+
+### Interaction：Transport
+
+| op | 参数 | 结果 |
+|---|---|---|
+| `transport.capabilities` | — | `TransportCapabilities` |
+| `transport.send` | `channel`, `payload` | `{"cursor":"…"}` |
+| `transport.readAfter` | `channel`, `cursor`?, `pattern` | `[{"cursor":"…","payload":…}]` |
+
+这一组直接暴露 v3.1 §10.1 的接口，用于检查游标契约（`TR-5`…`TR-9`）
+与能力声明，而不是经由 Subscription 间接观察。
+
 ---
 
 ## 错误

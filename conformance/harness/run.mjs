@@ -20,9 +20,27 @@ import { fileURLToPath } from 'node:url';
 
 import { Driver } from './driver.mjs';
 import { CORE_CHECKS } from './checks/core.mjs';
+import { INTERACTION_CHECKS } from './checks/interaction.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..', '..');
+
+/**
+ * Checks grouped by the layer they exercise.
+ *
+ * A driver declares the layers it covers in its hello line, and only those layers'
+ * checks run against it — a Go implementation of Composition Core alone is not
+ * failing the Interaction layer, it is not claiming it. The alternative, running
+ * everything and reporting failures for unclaimed layers, would make the harness
+ * report a conformant implementation as broken.
+ */
+const CHECKS_BY_LAYER = {
+  core: CORE_CHECKS,
+  interaction: INTERACTION_CHECKS,
+};
+
+/** The order layers are reported in: dependency order, so a gap reads top-down. */
+const LAYER_ORDER = ['core', 'interaction'];
 
 // Resolving the TypeScript runner is tooling, not implementation: the harness still
 // imports nothing from `@eapp/*`.
@@ -85,15 +103,17 @@ function makeTester(driver) {
   };
 }
 
-function selectChecks(only) {
-  if (only.length === 0) return CORE_CHECKS;
-  return CORE_CHECKS.filter((check) =>
+function selectChecks(only, layers) {
+  const pool = LAYER_ORDER.filter((layer) => layers.includes(layer)).flatMap(
+    (layer) => CHECKS_BY_LAYER[layer] ?? [],
+  );
+  if (only.length === 0) return pool;
+  return pool.filter((check) =>
     only.some((wanted) => check.id === wanted || check.id.split(' / ').includes(wanted)),
   );
 }
 
 async function runDriver(spec, options) {
-  const checks = selectChecks(options.only);
   const results = [];
 
   let driver;
@@ -108,15 +128,24 @@ async function runDriver(spec, options) {
     return { spec, results, startupError: error };
   }
 
-  const layers = driver.hello.layers ?? [];
-  if (!layers.includes('core')) {
+  const layers = (driver.hello.layers ?? []).filter((layer) => layer in CHECKS_BY_LAYER);
+  if (layers.length === 0) {
     await driver.close();
     return {
       spec,
       results: [],
-      startupError: new Error(`driver claims layers [${layers.join(', ')}], not 'core'`),
+      layers: driver.hello.layers ?? [],
+      startupError: new Error(
+        `driver claims layers [${(driver.hello.layers ?? []).join(', ')}], none of which this harness has checks for`,
+      ),
     };
   }
+
+  // A layer's checks may build on the layer below, so run them in dependency order.
+  const checks = selectChecks(options.only, layers).sort(
+    (a, b) => LAYER_ORDER.findIndex((l) => CHECKS_BY_LAYER[l].includes(a))
+      - LAYER_ORDER.findIndex((l) => CHECKS_BY_LAYER[l].includes(b)),
+  );
 
   for (const check of checks) {
     const tester = makeTester(driver);
@@ -133,7 +162,7 @@ async function runDriver(spec, options) {
   }
 
   await driver.close();
-  return { spec, results, stderrTail: driver.stderrTail };
+  return { spec, results, layers, stderrTail: driver.stderrTail };
 }
 
 function report(run, options) {
@@ -149,7 +178,7 @@ function report(run, options) {
     return { text: lines.join('\n'), failed: 1, total: 0 };
   }
 
-  lines.push(`  layers  ${(run.spec.layers ?? ['core']).join(', ')}`);
+  lines.push(`  layers  ${(run.layers ?? run.spec.layers ?? []).join(', ')}`);
 
   for (const result of run.results) {
     if (result.ok && !options.verbose) continue;
@@ -174,10 +203,16 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
 
   if (options.list) {
-    for (const check of CORE_CHECKS) {
-      process.stdout.write(`${check.id.padEnd(16)} ${check.rule}\n`);
+    for (const layer of LAYER_ORDER) {
+      const checks = CHECKS_BY_LAYER[layer] ?? [];
+      process.stdout.write(`\n${layer}\n`);
+      for (const check of checks) {
+        process.stdout.write(`  ${check.id.padEnd(14)} ${check.rule}\n`);
+      }
+      process.stdout.write(`  ${checks.length} check(s)\n`);
     }
-    process.stdout.write(`\n${CORE_CHECKS.length} checks\n`);
+    const total = LAYER_ORDER.reduce((sum, layer) => sum + (CHECKS_BY_LAYER[layer]?.length ?? 0), 0);
+    process.stdout.write(`\n${total} checks across ${LAYER_ORDER.length} layer(s)\n`);
     return 0;
   }
 
