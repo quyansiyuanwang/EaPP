@@ -13,7 +13,7 @@ EaPP 是**协议规范**，不是框架。这一点决定了贡献的方式：
 | 跑起来 | [`docs/guides/getting-started.md`](docs/guides/getting-started.md) |
 | 知道每条规则写在哪 | [`docs/README.md`](docs/README.md) |
 | 知道现在实现到什么程度 | [`docs/CONFORMANCE.md`](docs/CONFORMANCE.md) |
-| 知道为什么这样定 | [`docs/spec/DECISIONS-v3.2.0-r3.md`](docs/spec/DECISIONS-v3.2.0-r3.md) |
+| 知道为什么这样定 | [`docs/analysis/DECISIONS-v3.2.0-r3.md`](docs/analysis/DECISIONS-v3.2.0-r3.md) |
 
 ---
 
@@ -137,7 +137,7 @@ test('CG-6: an expired claim returns to the group on its own', async () => { …
 
 r3 相对 r2 做了四**条**改变语义内核的修订（Revision 即日志位置、delete 是一等原语、
 snapshot 的 head 序、CRDT 能力收紧）。它们记在
-[`DECISIONS-v3.2.0-r3.md`](docs/spec/DECISIONS-v3.2.0-r3.md) 里，含每条的理由。
+[`DECISIONS-v3.2.0-r3.md`](docs/analysis/DECISIONS-v3.2.0-r3.md) 里，含每条的理由。
 
 **任何触及语义内核的改动都必须重新走一遍 Final Review**，而不是打补丁。
 

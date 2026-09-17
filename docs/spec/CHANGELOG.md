@@ -14,7 +14,7 @@
 | **v3.0.0-core** | `docs/spec/v3.0.0-core.md` | FROZEN | 冻结于协议 3.0.0。补入 C-7（E-I）与 §19.3 一致性声明接口的修正（E-J） |
 | **v3.1.0-interaction** | `docs/spec/v3.1.0-interaction.md` | FROZEN | 冻结于协议 3.1.0。恢复 §2.4（E-A）、补全 §2.2 转移表（E-B）、新增 §6.2 规则 7（E-H） |
 | **v3.2.0-state** | `docs/spec/v3.2.0-state.md` | FROZEN | 冻结于协议 3.2.0。补入 §5.4、§10.5、§15.1（E-G） |
-| — | `docs/spec/DECISIONS-v3.2.0-r3.md` | 决议记录 | Final Review 的全部裁定（D-01…D-38、R-0…R-13） |
+| — | `../analysis/DECISIONS-v3.2.0-r3.md` | 决议记录 | Final Review 的全部裁定（D-01…D-38、R-0…R-13） |
 
 > **关于 r2 草案。** 冻结候选 r2 存在 40 条内部缺陷（F-01…F-39）与 12 处跨文档冲突
 > （X-1…X-12），已在 r3 全部关闭。逐条的裁定与理由见 `DECISIONS-v3.2.0-r3.md`；

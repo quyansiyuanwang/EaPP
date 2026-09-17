@@ -110,7 +110,7 @@ v3.2 的 r2 有 40 条内部缺陷与 12 处跨文档冲突，逐条打补丁已
 因此采用「**决议记录 + 重写正文**」：
 
 ```
-docs/spec/DECISIONS-v3.2.0-r3.md   每条规则为什么是这样
+docs/analysis/DECISIONS-v3.2.0-r3.md   每条规则为什么是这样
 docs/spec/v3.2.0-state.md          规则是什么
 ```
 
@@ -147,7 +147,7 @@ docs/spec/v3.2.0-state.md          规则是什么
 
 | 文件 | 记录什么 |
 |---|---|
-| `docs/spec/DECISIONS-v3.2.0-r3.md` | 51 条裁定的**理由**（D-01…D-38 内部，R-0…R-13 跨文档） |
+| `docs/analysis/DECISIONS-v3.2.0-r3.md` | 51 条裁定的**理由**（D-01…D-38 内部，R-0…R-13 跨文档） |
 | `docs/CONFORMANCE.md` §5 | 实现相对规范的**已登记偏离** |
 | `docs/spec/CHANGELOG.md` | 版本之间的全部修订与映射 |
 
