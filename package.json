@@ -19,7 +19,8 @@
     "demo": "tsx examples/hello-plugins/index.ts",
     "example:first": "tsx examples/my-first-plugin/index.ts",
     "example:queue": "tsx examples/job-queue/index.ts",
-    "examples": "pnpm run demo && pnpm run example:first && pnpm run example:queue",
+    "example:transport": "tsx examples/array-transport/index.ts",
+    "examples": "pnpm run demo && pnpm run example:first && pnpm run example:queue && pnpm run example:transport",
     "verify": "pnpm run typecheck && pnpm run test && pnpm run examples && pnpm run check:invariants && pnpm run check:docs"
   },
   "devDependencies": {

@@ -2,7 +2,7 @@
 
 > **读完这一页，你应当能让 EaPP 跑在你的消息系统上。**
 
-前置阅读：[概念：三层心智模型](./concepts.md) 的 **§2 与 §8**。
+前置阅读：[概念：三层心智模型](./concepts.md) 的 **§2 与 §7**。
 本页所有类型与行为都取自 `packages/interaction/src/transport.ts`、
 `packages/state/src/state-transport.ts` 与参考实现 `packages/transport/memory/`；
 所有代码都是真实可跑的，并已在仓库内执行验证。
@@ -152,6 +152,7 @@ MUST 抛 `EAPP_REVISION_INVALID`，因此 restore **永远不会把日志往回�
 
 ```typescript
 function assertDeclared(transport: Transport): void {
+  const c: Partial<TransportCapabilities> | undefined = transport.capabilities;
   if (!c || typeof c.persistent !== 'boolean' || typeof c.ordering !== 'string') {
     throw new EappError('EAPP_UNSUPPORTED', `transport ${transport.id} does not declare capabilities`);
   }
@@ -178,11 +179,18 @@ TR-3  Transport MUST NOT 伪装支持。
 一个号称 `supportsCursor: true` 却记不住位置的实现，比一个诚实地报 `false` 的实现危险得多：
 后者会被闸门在调用点拦住，前者会在生产环境里静默重投或丢消息。
 
-> 注意两套闸门的执行方式不同：v3.2 的四个 `supportsState*` 标志由
-> `assertStateCapability` **自动**在最早的调用点强制；而 v3.1 的
-> `assertCapability(transport, 'cursor' | 'lease')` 与 `assertDeclared(transport)`
-> 是**导出供调用方使用**的检查 —— 参考实现内部没有自动调用点。
-> 自己不调它们，声明就只是一句没人读的话。见 §9.2 的检查清单。
+> 注意两套闸门的执行方式**不一样**：
+>
+> - v3.2 的四个 `supportsState*` 标志由 `assertStateCapability` 在最早的调用点强制。
+> - v3.1 的 `assertDeclared` **也被自动执行**：`InteractionLayerImpl` 的构造函数调用
+>   `assertCapabilitiesCoherent`，后者先调 `assertDeclared`，
+>   再拒绝两种自相矛盾的组合（`supportsCursor` + `ordering:'none'`，
+>   以及 `persistent:false` + `durabilityBoundary:'cluster'|'global'`）。
+>   所以只要用运行时建过一层，声明就已经被查过。
+> - 只有 `assertCapability(transport, 'cursor' | 'lease')` 是**导出供调用方使用**的，
+>   参考实现内部没有自动调用点。自己不调它，"这个 Transport 支不支持 cursor" 就没人问过。
+>
+> 见 §9.2 的检查清单。
 
 `StateTransportCapabilities` 在之上再加六个字段，每个 flag **恰好**对应一个强制后果（TS-2），
 闸门在最早的调用点执行：
@@ -338,9 +346,17 @@ TR-1  Transport MUST NOT 定义 Interaction 语义。
 
 ## 6. 完整示例：一个可运行的 Transport
 
-下面是一个真的能跑的实现：每条 Channel 一个数组，固定宽度零填充 cursor，
-同时实现 `Transport` 与 `StateTransport`。
-把它存成 `examples/array-transport/index.ts`，然后 `npx tsx examples/array-transport/index.ts`。
+示例就在仓库里，**可以直接跑**：
+
+```bash
+pnpm run example:transport
+# 等价于 npx tsx examples/array-transport/index.ts
+```
+
+完整文件在 [`examples/array-transport/index.ts`](../../examples/array-transport/index.ts)：
+每条 Channel 一个数组，固定宽度零填充 cursor，同时实现 `Transport` 与 `StateTransport`，
+结尾自检 12 条结论。下面摘的是实现部分，并标出四处**容易写错的地方**。
+
 （示例内的导入用相对路径，与 `examples/hello-plugins/` 的做法一致 ——
 仓库根目录没有链接 `@eapp/*` 的 `node_modules` 入口，`@eapp/...` 形式的包名只在
 `tsc`（经由 `tsconfig.json` 的 `paths`）与 `vitest`（经由 `vitest.config.ts` 的 alias）下可解析。）
@@ -378,7 +394,11 @@ export class ArrayTransport implements StateTransport {
   readonly #cells = new Map<string, Map<string, StateCell>>();
   readonly #changes = new Map<string, StateChange[]>();
   readonly #heads = new Map<string, Revision>();
+  /** channel → 当前最新位置，消息与状态写入共用。 */
+  readonly #anchors = new Map<string, Cursor>();
+  readonly #waiters = new Map<string, Set<() => void>>();
   #seq = 0;
+  #closed = false;
 
   constructor(id = 'array-1', options: { withCas?: boolean } = {}) {
     this.id = id;
@@ -404,13 +424,54 @@ export class ArrayTransport implements StateTransport {
     return `${this.id}!${String(this.#seq).padStart(WIDTH, '0')}`;
   }
 
+  #notify(channel: string): void {
+    const pending = [...(this.#waiters.get(channel) ?? [])];
+    this.#waiters.get(channel)?.clear();
+    for (const resolve of pending) resolve();
+  }
+
+  /** 提交一次状态变更：推进 head 与 anchor，唤醒等待者。 */
+  #commit(channel: string, change: StateChange): void {
+    const log = this.#changes.get(channel) ?? [];
+    log.push(change);
+    this.#changes.set(channel, log);
+    this.#heads.set(channel, change.revision);
+    this.#anchors.set(channel, change.revision);
+    this.#notify(channel);
+  }
+
+  // ------------------------------------------------------------------ 两道闸门
+  //
+  // 这两道闸门是上面那份"能跑但不够对"的版本缺的东西。它们都不是仪式：
+  // 少了第一道，"已关闭"和"还开着"从调用方看完全一样（TR-4 禁止的静默降级）；
+  // 少了第二道，一个外来的位置会被当成自己的位置，静默读到错的地方。
+
+  #assertOpen(): void {
+    if (this.#closed) {
+      throw new EappError('EAPP_UNSUPPORTED', `transport ${this.id} is closed`);
+    }
+  }
+
+  #requireOwn(value: Cursor | Revision | undefined, label: string): void {
+    if (value === undefined || value === '') return;
+    if (typeof value !== 'string' || !value.startsWith(`${this.id}!`)) {
+      throw new EappError(
+        'EAPP_CURSOR_INVALID',
+        `${label} '${String(value)}' was not issued by transport ${this.id}`,
+      );
+    }
+  }
+
   // ------------------------------------------------------------------ Transport
 
   async send(channel: string, msg: unknown): Promise<Cursor> {
+    this.#assertOpen();
     const cursor = this.#allocate();
     const log = this.#log.get(channel) ?? [];
     log.push({ cursor, message: msg });
     this.#log.set(channel, log);
+    this.#anchors.set(channel, cursor);
+    this.#notify(channel);
     return cursor;
   }
 
@@ -419,6 +480,7 @@ export class ArrayTransport implements StateTransport {
     cursor: Cursor | undefined,
     pattern: Pattern,
   ): Promise<TransportMessage[]> {
+    this.#requireOwn(cursor, 'cursor');
     const from = cursor ?? '';                       // TR-6
     return (this.#log.get(channel) ?? [])
       .filter((entry) => compareCursor(entry.cursor, from) > 0)         // TR-5
@@ -427,27 +489,45 @@ export class ArrayTransport implements StateTransport {
       .map((entry) => ({ cursor: entry.cursor, payload: entry.message }));
   }                                                   // TR-7：无匹配就是空数组，不阻塞
 
-  async close(): Promise<void> {}
+  /**
+   * `close()` 之后的写入 MUST 明确失败，而不是静默成功。
+   * 一个空实现的 `close()` 会让"已关闭"和"还开着"从调用方看完全一样 ——
+   * 这正是 TR-4 要禁掉的静默降级。而且它必须**唤醒等待者**，
+   * 否则阻塞在 `waitForChange` 里的订阅循环会永远醒不过来。
+   */
+  async close(): Promise<void> {
+    this.#closed = true;
+    for (const channel of this.#waiters.keys()) this.#notify(channel);
+  }
 
   async resolveAnchor(channel: string, anchor: CursorAnchor): Promise<Cursor> {
     if (anchor === 'earliest') return '';            // 保留日志的起点
-    if (anchor === 'latest') return this.#lastCursor(channel);
-    return anchor;                                   // 规则 2：其余字符串当 cursor
+    if (anchor === 'latest') return this.#anchors.get(channel) ?? '';
+    this.#requireOwn(anchor, 'cursor');              // 规则 2：其余字符串当 cursor
+    return anchor;
   }
 
-  #lastCursor(channel: string): Cursor {
-    const head = this.#heads.get(channel);
-    const sent = this.#log.get(channel)?.at(-1)?.cursor;
-    if (head === undefined) return sent ?? '';
-    if (sent === undefined) return head;
-    return compareCursor(sent, head) > 0 ? sent : head;
-  }
+  /**
+   * 真的阻塞，直到该 Channel 上有新东西。这是**优化**，不是正确性依赖（§4.5）：
+   * 没有它，`Subscription` 会退化成按 `pollIntervalMs` 轮询 —— 慢，但仍然正确。
+   */
+  waitForChange(channel: string, _cursor: Cursor | undefined, signal?: AbortSignal): Promise<void> {
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      const waiters = this.#waiters.get(channel) ?? new Set<() => void>();
+      this.#waiters.set(channel, waiters);
 
-  async waitForChange(
-    _channel: string, _cursor: Cursor | undefined, _signal?: AbortSignal,
-  ): Promise<void> {
-    // 真实实现应在这里阻塞；这里用一次短轮询演示"它只是优化"（§4.5）。
-    await new Promise((resolve) => setTimeout(resolve, 5));
+      const finish = (): void => {
+        if (settled) return;
+        settled = true;
+        waiters.delete(finish);
+        signal?.removeEventListener('abort', finish);
+        resolve();
+      };
+
+      waiters.add(finish);
+      signal?.addEventListener('abort', finish, { once: true });
+    });
   }
 
   // ------------------------------------------------------------- StateTransport
@@ -470,6 +550,7 @@ export class ArrayTransport implements StateTransport {
 
   /** TS-6：比较与写入之间没有 await，因此不会交错。 */
   async setStateWithCAS(channel: string, update: StateUpdate, actor: Identity): Promise<Revision> {
+    this.#assertOpen();
     const cells = this.#cells.get(channel) ?? new Map<string, StateCell>();
     this.#cells.set(channel, cells);
     const current = cells.get(update.key);
@@ -490,7 +571,7 @@ export class ArrayTransport implements StateTransport {
       updatedAt: Date.now(),
       updatedBy: actor,
     });
-    this.#appendChange(channel, {
+    this.#commit(channel, {
       channel, revision, key: update.key, type: deleted ? 'deleted' : 'set',
       ...(deleted ? {} : { value: update.value }),
     });
@@ -500,32 +581,50 @@ export class ArrayTransport implements StateTransport {
   async deleteStateWithCAS(
     channel: string, key: string, expectedRevision: ExpectedRevision, actor: Identity,
   ): Promise<Revision> {
+    this.#assertOpen();
     const cells = this.#cells.get(channel);
     const current = cells?.get(key);
-    if (!current) throw new EappError('EAPP_STATE_KEY_NOT_FOUND', `'${key}' has never existed`);
-    if (expectedRevision === null || compareCursor(current.revision, expectedRevision) !== 0) {
+
+    // 这里是 §6.2 边界表里最容易写错的一格。**两种"key 不存在"是不同的失败**：
+    //
+    //   从未存在 + expectedRevision === null   →  EAPP_STATE_KEY_NOT_FOUND（DEL-4）
+    //   从未存在 + expectedRevision === Revision →  EAPP_REVISION_CONFLICT
+    //
+    // 第二种是"我来晚了/我搞错了"（CAS 冲突，可重试），第一种是"你想删一个
+    // 从来没存在过的东西"（调用错误，不可重试）。合成一个码，调用方就再也分不清
+    // 这两种情况 —— 而它们的重试策略正好相反。
+    if (!current) {
+      if (expectedRevision === null) {
+        throw new EappError('EAPP_STATE_KEY_NOT_FOUND', `'${key}' has never existed`);
+      }
+      throw new EappError('EAPP_REVISION_CONFLICT', `'${key}' does not exist`);
+    }
+    if (expectedRevision === null) {
+      throw new EappError('EAPP_REVISION_CONFLICT', `'${key}' already exists`);
+    }
+    if (compareCursor(current.revision, expectedRevision) !== 0) {
       throw new EappError('EAPP_REVISION_CONFLICT', `'${key}' has moved on`);
     }
-    if (current.deleted) return current.revision;     // 删除已删除的 key：no-op，不分配位置
+
+    if (current.deleted) return current.revision;     // 删除已删除的 key：no-op，不分配位置（DEL-5）
     const revision = this.#allocate();
     cells!.set(key, {
       key, revision, value: undefined, deleted: true,
       updatedAt: Date.now(), updatedBy: actor,
     });
-    this.#appendChange(channel, { channel, revision, key, type: 'deleted' });
+    this.#commit(channel, { channel, revision, key, type: 'deleted' });
     return revision;
   }
 
-  #appendChange(channel: string, change: StateChange): void {
-    const log = this.#changes.get(channel) ?? [];
-    log.push(change);
-    this.#changes.set(channel, log);
-    this.#heads.set(channel, change.revision);
-  }
-
+  /**
+   * TS-9 / TS-10：返回的是**变更流**（每次写入一条），不是 post-image 数组。
+   * post-image 表达不了"同一个 key 写了两次"，中间那次就永久丢了，
+   * 观察位置也就没有意义。
+   */
   async readChangesAfter(
     channel: string, cursor: Cursor | undefined, pattern: StatePattern,
   ): Promise<StateChange[]> {
+    this.#requireOwn(cursor, 'cursor');
     const from = cursor ?? '';                        // TS-11
     return (this.#changes.get(channel) ?? [])
       .filter((change) => compareCursor(change.revision, from) > 0)     // TS-9 / TS-10
@@ -555,6 +654,8 @@ export class ArrayTransport implements StateTransport {
     channel: string, key: string, value: unknown, deleted: boolean,
     revision: Revision, actor: Identity,
   ): Promise<void> {
+    this.#assertOpen();
+    this.#requireOwn(revision, 'revision');
     if (this.compareRevision(revision, await this.head(channel)) <= 0) {
       throw new EappError('EAPP_REVISION_INVALID', `'${revision}' does not advance head`);
     }
@@ -564,7 +665,7 @@ export class ArrayTransport implements StateTransport {
       key, revision, value: deleted ? undefined : value, deleted,
       updatedAt: Date.now(), updatedBy: actor,
     });
-    this.#appendChange(channel, {
+    this.#commit(channel, {
       channel, revision, key, type: deleted ? 'deleted' : 'set',
       ...(deleted ? {} : { value }),
     });
@@ -586,13 +687,15 @@ const runtime = EappRuntime.create({
 });
 ```
 
-> **类型提醒。** `EappRuntimeOptions.transport` 被声明为具体的 `MemoryTransport` 类
-> （字段类型与构造函数选项都是），不是 `Transport` 接口。
-> 运行时**实际**只使用 `Transport` 那一面，`MemoryTransport` 也是从
-> `@eapp/transport-memory` 正常导出的类 —— 但把自己的实现传进去会被 `tsc` 拒绝：
-> `Type 'MyTransport' is missing the following properties from type 'MemoryTransport'`。
-> 类型干净的做法有两个：把选项放宽到 `Transport`（需要改实现），或者用下面的 ②。
-> 这是当前实现的**类型可用性**缺口，不是协议要求。
+> **类型提醒（这条曾经是错的，现在是对的）。** `EappRuntimeOptions.transport` 声明的是
+> `StateTransport` 接口，不是 `MemoryTransport` 类。早期版本声明成了具体类，
+> 于是把自己的实现传进去会被 `tsc` 拒绝
+> （`Type 'MyTransport' is missing the following properties from type 'MemoryTransport'`）——
+> 那等于让 Transport 边界在类型上失效。现在传任何 `StateTransport` 都可以。
+>
+> 示例的第二部分就是这么做的：同一个 `ArrayTransport` 交给运行时，
+> `invoke` / `publish` / `subscribe` / `stateChannel` 全部照跑，
+> 上面三层不需要知道消息存在数组里。
 
 **② 直接把下层组件接起来。** 这是运行时内部使用的同一组调用，任何实现都可以这样用：
 
@@ -627,21 +730,30 @@ const subscription = await TransportSubscription.create('orders', {}, {
 });
 ```
 
-这段代码已在仓库内执行，输出如下（三次状态写入与一条消息共用同一本日志，因此位置连续）：
-
-它跑出来的几行会是这个样子：
+`pnpm run example:transport` 的第一部分就是这个接法，真实输出：
 
 ```
-v1 cas-1!00000000000000000001 v2 cas-1!00000000000000000002 stale write -> EAPP_REVISION_CONFLICT retryable=true
-final: {"key":"stock","revision":"cas-1!00000000000000000002","value":2,"deleted":false,"updatedAt":…,"updatedBy":{"domain":"eapp.guide","id":"writer","instance":"writer-1"}}
-watcher saw [1] cursor "cas-1!00000000000000000003"
-snapshot head: cas-1!00000000000000000003
-subscription received: [{"type":"order","n":10},{"type":"order","n":11}] cursor: "sub-1!00000000000000000002"
+  set stock=1 → array-1!00000000000000000001
+  set stock=2 → array-1!00000000000000000002
+  拿着旧 token 再写 → EAPP_REVISION_CONFLICT  retryable=true
+  最终值 = 2 —— 没有丢更新
+  watcher 看到 [3]，它的 cursor = array-1!00000000000000000003
+  —— 与 revision 同一个值：在这一层 Revision 和 Cursor 同域（REV-7）
+  订阅收到 [10,11]，cursor = array-1!00000000000000000005
+  —— 前缀是 array-1，与上面三次状态写入同一本日志（位置连续）
 ```
 
-两处值得注意：拿着同一个 CAS token 的第二次写入被拒绝（`EAPP_REVISION_CONFLICT`，
-`retryable=true`），以及 watcher 的 `cursor` **就是** revision —— 因为 Revision 与 Cursor
-在这一层是同一域上的同一类型。
+（id 与位置按创建顺序递增，字面值会变。）
+
+三处值得注意：
+
+- 拿着同一个 CAS token 的第二次写入被拒绝（`EAPP_REVISION_CONFLICT`，`retryable=true`），
+  而 watcher 的 `cursor` **就是**那次写入的 revision —— 因为 Revision 与 Cursor
+  在这一层是同一域上的同一类型。
+- 状态写入落在位置 `…03`，消息落在 `…04`、`…05`。**没有跳号，也没有两本日志**：
+  这就是"Revision 是写入在 Channel 日志中的位置"的字面含义。
+- 全部位置都带 `array-1!` 前缀 —— 那是 Transport 的签名，也是
+  `compareRevision` 能拒绝外来值（REV-8）的依据。
 
 想自己复现"并发写者"那一幕，用 `Promise.all` 就够了 —— 同一个 token 必然只有一个赢家：
 
@@ -787,9 +899,11 @@ pnpm run check:invariants # 冻结闸门：每个不变量都至少有一个测�
 
 ### 9.3 把仓库的一致性套件当作规范用
 
-一致性套件是**对参考实现**的不变量覆盖（208 条不变量，见
-[一致性报告](../CONFORMANCE.md)），`tests/conformance/*.test.ts` 里的每条测试都带着
-它检验的不变量 ID。为你的实现移植这些用例时：
+一致性套件是**对参考实现**的不变量覆盖（209 条不变量 = 51 + 74 + 84，见
+[一致性报告](../CONFORMANCE.md)）。`tests/conformance/*.test.ts` 里**大多数**测试的名字
+带着它检验的不变量 ID —— 覆盖清单是逐条对照的依据。
+但并非每条测试都带 ID：有些测的是规范的形状（例如 `§2.2: ChannelRef carries only id and binding`），
+它们的价值同样成立，只是不对应某一条编号。为你的实现移植这些用例时：
 
 - 保持 ID 与断言的**性质**，不要复制参考实现的位置字面量。D-20 明确要求：
   冲突用例 MUST 用 `nextRevision()` 索取一个必然不匹配的 revision，
@@ -835,14 +949,20 @@ pnpm run check:invariants # 冻结闸门：每个不变量都至少有一个测�
   Rust 的 `async fn`、Go 的 goroutine + channel、Erlang 的消息传递都能承载它。
 - **`Subscription` 的形态。** `for await` 是异步迭代器；任何"逐条交付 + 逐条 ack"的
   迭代接口都等价。关键是 `AckContext` 的两个方法 `ack()` / `nack()` 都要在。
-- **`Capability.constraints` 的匹配语义**当前**未实现**（一致性报告 §6 C7）——
-  不要把它当成必须复刻的行为。
+- **`Capability.constraints` 的匹配语义**是 Core 里最窄的一种：`kind` 字符串相等 +
+  `value` 结构相等（C-7，`packages/core/src/discovery.ts` 的 `constraintSatisfied()`）。
+  更丰富的匹配（范围、偏序、谓词）属于 Extension，MUST NOT 混入 Core ——
+  所以照抄这一条是**必需**的，不要自己发明一套。
 
 ### 10.3 用一致性套件当正确性规范
 
 `tests/conformance/` 里的用例**就是**规范的可执行形式：
-每条测试都标注它检验的不变量 ID（`core.test.ts` 50 条、`interaction.test.ts` 74 条、
-`state.test.ts` 84 条，覆盖面见 [一致性报告](../CONFORMANCE.md)）。
+大多数测试都在名字里标注它检验的不变量 ID（`core.test.ts` 覆盖 v3.0 层 51 条、
+`interaction.test.ts` 74 条、`state.test.ts` 84 条，另有 `runtime.test.ts` 做端到端；
+覆盖面见 [一致性报告](../CONFORMANCE.md)）。
+
+> 不变量总数是 **51 + 74 + 84 = 209**。层数（51）不等于测试条数
+> （`core.test.ts` 有 41 条）—— 一条测试可以覆盖多条不变量，也有测试不对应任何不变量。
 
 移植建议：
 
@@ -853,8 +973,8 @@ pnpm run check:invariants # 冻结闸门：每个不变量都至少有一个测�
    不要断言 cursor 的字面值、不要断言 id 的生成顺序。
 ③ 用 pnpm run check:invariants 的输出当移植清单：
    每条不变量都应当能在你的语言里找到至少一个对应用例。
-④ 一致性报告 §6「尚未实现」里的东西不在声明内（C7 constraints 匹配、
-   跨进程 Transport、CRDT、日志压缩、Trust Domain 权限）。你的实现 MAY 不做，
+④ 一致性报告 §6「尚未实现」里只有三项（跨进程 Transport、CRDT、
+   Trust Domain 权限）—— 它们是 Extension，不在声明内。你的实现 MAY 不做，
    但**不可以假装做了**。
 ```
 
@@ -865,7 +985,7 @@ pnpm run check:invariants # 冻结闸门：每个不变量都至少有一个测�
 
 ## 相关
 
-- [概念：三层心智模型](./concepts.md) —— 特别是 §2（层与层的方向）与 §8（什么不属于 Core）
+- [概念：三层心智模型](./concepts.md) —— 特别是 §2（层与层的方向）与 §7（什么不属于 Core）
 - [写一个插件](./write-a-plugin.md) —— 上面那一层看到的世界
 - [快速上手](./getting-started.md) —— 默认 Transport 的实测输出
 - [`Transport`](../reference/transport.md) · [`Cursor`](../reference/cursor.md) ·

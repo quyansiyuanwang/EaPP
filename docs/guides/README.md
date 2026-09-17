@@ -7,8 +7,8 @@
 | [概念：三层心智模型](./concepts.md) | 无 | 说清 Composition / Interaction / State 各自回答什么问题 |
 | [快速上手](./getting-started.md) | 无 | 跑起来，并看懂 `pnpm run demo` 的每一行输出 |
 | [写一个插件](./write-a-plugin.md) | 概念 | 写出一个能被发现、连接、激活、调用的插件 |
-| [实现一个 Transport](./write-a-transport.md) | 概念 + 一致性报告 | 让 EaPP 跑在你的消息系统上 |
-| [用另一种语言实现 EaPP](./implement-in-another-language.md) | 三种都读过 | 知道必须实现什么、可以跳过什么 |
+| [实现一个 Transport](./write-a-transport.md) | 概念（§2 与 §7） | 让 EaPP 跑在你的消息系统上 |
+| [用另一种语言实现 EaPP](./implement-in-another-language.md) | 无 | 知道必须实现什么、可以跳过什么 |
 
 ## 参考页 vs 指南
 
