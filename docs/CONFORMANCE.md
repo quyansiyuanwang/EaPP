@@ -2,7 +2,33 @@
 
 **日期**：见 `git log -1 --format=%cI`
 **规范基线**：v3.0.0-core FROZEN / v3.1.0-interaction FROZEN / v3.2.0-state FROZEN
-**实现**：`eapp@3.2.0-r3`
+**实现**：`eapp@3.2.0-r3`（TypeScript 参考实现）· `eapp-go`（Go 独立实现，Composition Core）
+
+---
+
+## 0. 两份证据
+
+一份实现证明不了协议。它只能证明"这么写能跑通"——声明与实现出自同一支笔时，
+两者之间的分歧要靠人来发现，而人恰好是写它们的那个人。
+
+所以仓库里有**两份独立实现**，以及一个**不属于任何一方**的检查工具：
+
+| | 是什么 | 由谁检查 |
+|---|---|---|
+| `packages/` | TypeScript 参考实现，三层完整 | `tests/conformance/`（同一作者写的单元测试） |
+| `implementations/go/` | Go 独立实现，只做 Composition Core | 无 —— 它就是被检查的对象 |
+| `conformance/` | 语言中立的 driver 协议 + harness | 不检查任何实现，只按协议问问题 |
+
+Go 那份是**从规范正文写出来的**：写它的人被明确禁止阅读 TypeScript 实现。
+这不是流程洁癖 —— 一旦可以互相参考，两套实现就会在同一个地方一起错，
+而那正是"两份证据"要排除的情况。
+
+```bash
+pnpm run conformance:external     # 33 条检查 × 2 套实现
+```
+
+`conformance/README.md` 逐条列出这 33 条覆盖了 v3.0 的 51 条不变量中的**哪 40 条**，
+以及每一条没覆盖的**为什么**。
 
 ---
 
@@ -19,6 +45,10 @@
   "total": 209
 }
 ```
+
+这份声明是**参考实现**的。Go 实现只做 Composition Core，所以它的声明会小得多 ——
+level 只到 `C1`–`C3`，`passed` / `total` 只算 v3.0 那一层的 40 条可外部检查的不变量。
+**不做的事不声明**，见 §6。
 
 `levels` 只列规范定义过的等级：v3.0 §15 定义 `C1`–`C8`，v3.1 §15 定义 `I1`–`I7`。
 v3.2 没有定义独立的等级前缀（它的 §14 是不变量分组，不是等级）。本轮更正了两处：
@@ -39,8 +69,9 @@ v3.2 没有定义独立的等级前缀（它的 §14 是不变量分组，不是
 
 ```bash
 pnpm install
-pnpm run verify      # typecheck + 174 tests + examples + 冻结闸门 + 链接闸门
-pnpm run demo        # 端到端演示：三个互不相识的插件
+pnpm run verify               # typecheck + 测试 + 5 个示例 + 冻结闸门 + 链接闸门
+pnpm run conformance:external # 语言中立的 harness：33 条检查 × 2 套独立实现
+pnpm run demo                 # 端到端演示：三个互不相识的插件
 ```
 
 `pnpm run verify` 共五段（typecheck / test / examples / check:invariants / check:docs），
