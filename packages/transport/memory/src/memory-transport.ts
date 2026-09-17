@@ -49,6 +49,15 @@ export class MemoryTransport implements StateTransport {
   readonly #changes = new Map<string, StateChange[]>();
   /** channel -> current head revision */
   readonly #heads = new Map<string, Revision>();
+  /**
+   * channel -> last cursor issued for it, from EITHER messages or state writes.
+   *
+   * Kept separate from `#heads` on purpose. `head()` answers "how far has the state log
+   * advanced", which `snapshot()` depends on and which MUST NOT be polluted by plain
+   * messages. An anchor, by contrast, answers "where is the newest thing on this
+   * channel", and a stream subscriber using `'latest'` needs the latter.
+   */
+  readonly #anchors = new Map<string, Cursor>();
   readonly #waiters = new Map<string, Set<() => void>>();
   #closed = false;
 
@@ -105,6 +114,7 @@ export class MemoryTransport implements StateTransport {
   #append(channel: string, change: StateChange): void {
     this.#changeLog(channel).push(change);
     this.#heads.set(channel, change.revision);
+    this.#anchors.set(channel, change.revision);
     this.#notify(channel);
   }
 
@@ -135,6 +145,7 @@ export class MemoryTransport implements StateTransport {
     const log = this.#messages.get(channel) ?? [];
     log.push({ cursor, payload: msg });
     this.#messages.set(channel, log);
+    this.#anchors.set(channel, cursor);
     this.#notify(channel);
     return cursor;
   }
@@ -164,7 +175,7 @@ export class MemoryTransport implements StateTransport {
       return BEGINNING;
     }
     if (anchor === 'latest') {
-      return this.#heads.get(channel) ?? BEGINNING;
+      return this.#anchors.get(channel) ?? BEGINNING;
     }
     return anchor;
   }
