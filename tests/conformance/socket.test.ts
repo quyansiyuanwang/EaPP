@@ -550,3 +550,176 @@ describe('socket transport: state mode across the wire', () => {
     await runtime.shutdown();
   });
 });
+
+describe('socket transport: request/response across processes', () => {
+  const ECHO = { name: 'echo.run', version: '1.0.0' };
+  const PROVIDER = { domain: 'eapp.test', id: 'echo', instance: 'echo-1' };
+  const CONSUMER = { domain: 'eapp.test', id: 'client', instance: 'client-1' };
+  const SINK = { domain: 'eapp.test', id: 'sink', instance: 'sink-1' };
+
+  /** The provider's side: it hosts the plugin and serves it. */
+  async function providerSide(server: SocketBroker, calls: string[]) {
+    const { EappRuntime } = await import('@eapp/runtime');
+    const transport = await client(server);
+    const runtime = EappRuntime.create({
+      domain: 'eapp.test',
+      transport,
+      channelId: () => 'echo-channel',
+    });
+    const echo = runtime.register({
+      manifest: { identity: PROVIDER, capabilities: [ECHO] },
+      handlers: {
+        'echo.run': async (payload) => {
+          calls.push(String(payload));
+          return `echo:${String(payload)}`;
+        },
+      },
+    });
+    const sink = runtime.register({ manifest: { identity: SINK, capabilities: [] } });
+    await runtime.activate(echo);
+    await runtime.activate(sink);
+    await runtime.serve({ from: echo, to: sink, capability: ECHO });
+    return { runtime, transport, echo, sink };
+  }
+
+  /** The caller's side: it knows the provider exists, but does not host it. */
+  async function callerSide(server: SocketBroker) {
+    const { EappRuntime } = await import('@eapp/runtime');
+    const transport = await client(server);
+    const runtime = EappRuntime.create({
+      domain: 'eapp.test',
+      transport,
+      channelId: () => 'echo-channel',
+    });
+    // Registered, not hosted. Without this distinction the caller's own dispatcher
+    // would answer EAPP_CAPABILITY_NOT_EXPOSED and race the real reply.
+    const remote = runtime.registerRemote({ identity: PROVIDER, capabilities: [ECHO] });
+    const client_ = runtime.register({ manifest: { identity: CONSUMER, capabilities: [] } });
+    await runtime.activate(remote);
+    await runtime.activate(client_);
+    return { runtime, transport, echo: remote, client: client_ };
+  }
+
+  test('a provider hosted in another runtime answers the call', async () => {
+    const server = await broker();
+    const calls: string[] = [];
+    const provider = await providerSide(server, calls);
+    const caller = await callerSide(server);
+
+    // The same plugin reference means two different things to the two runtimes:
+    // hosted here, merely addressable there. That distinction is the whole change.
+    expect(provider.runtime.hosts(provider.echo)).toBe(true);
+    expect(caller.runtime.hosts(caller.echo)).toBe(false);
+
+    const reply = await caller.runtime.invoke({
+      from: caller.client,
+      to: caller.echo,
+      capability: ECHO,
+      payload: 'hello',
+    });
+
+    expect(reply).toBe('echo:hello');
+    // The handler ran exactly once, in the other runtime.
+    expect(calls).toEqual(['hello']);
+
+    await caller.runtime.shutdown();
+    await provider.runtime.shutdown();
+  });
+
+  test('the caller never answers for a provider it does not host', async () => {
+    const server = await broker();
+    const calls: string[] = [];
+    // Only the caller side exists: nobody serves this Channel.
+    const caller = await callerSide(server);
+
+    // The old behaviour was an immediate EAPP_CAPABILITY_NOT_EXPOSED from the
+    // caller's own dispatcher — a wrong answer that looked like a right one. Now
+    // the process stays silent about a plugin that is not its to answer for, so the
+    // call fails the way an unanswered request does.
+    await expect(
+      caller.runtime.invoke({
+        from: caller.client,
+        to: caller.echo,
+        capability: ECHO,
+        payload: 'nobody-home',
+        timeoutMs: 200,
+      }),
+    ).rejects.toThrow('EAPP_TIMEOUT');
+    expect(calls).toEqual([]);
+
+    await caller.runtime.shutdown();
+  });
+
+  test('a second process cannot serve the same Channel', async () => {
+    const server = await broker();
+    const first = await providerSide(server, []);
+    const { EappRuntime } = await import('@eapp/runtime');
+
+    // A second runtime that also hosts the plugin and also tries to serve. Both
+    // would run the handler; the duplicate reply is dropped by the correlation
+    // tracker, so the caller would never notice the side effect happening twice.
+    const transport = await client(server);
+    const second = EappRuntime.create({
+      domain: 'eapp.test',
+      transport,
+      channelId: () => 'echo-channel',
+    });
+    const echo = second.register({
+      manifest: { identity: PROVIDER, capabilities: [ECHO] },
+      handlers: { 'echo.run': async () => 'from-the-wrong-process' },
+    });
+    const sink = second.register({ manifest: { identity: SINK, capabilities: [] } });
+    await second.activate(echo);
+    await second.activate(sink);
+
+    await expect(second.serve({ from: echo, to: sink, capability: ECHO })).rejects.toThrow(
+      'EAPP_UNSUPPORTED',
+    );
+
+    // ...and the first one still works.
+    const caller = await callerSide(server);
+    const reply = await caller.runtime.invoke({
+      from: caller.client,
+      to: caller.echo,
+      capability: ECHO,
+      payload: 'still-mine',
+    });
+    expect(reply).toBe('echo:still-mine');
+
+    await caller.runtime.shutdown();
+    await second.shutdown();
+    await first.runtime.shutdown();
+  });
+
+  test('the role returns when the serving process goes away', async () => {
+    const server = await broker();
+    const first = await providerSide(server, []);
+    await first.runtime.shutdown();
+
+    // The departed server released the role rather than leaving the Channel
+    // unservable with no way to tell.
+    const calls: string[] = [];
+    const second = await providerSide(server, calls);
+    const caller = await callerSide(server);
+    const reply = await caller.runtime.invoke({
+      from: caller.client,
+      to: caller.echo,
+      capability: ECHO,
+      payload: 'after-failover',
+    });
+    expect(reply).toBe('echo:after-failover');
+    expect(calls).toEqual(['after-failover']);
+
+    await caller.runtime.shutdown();
+    await second.runtime.shutdown();
+  });
+
+  test('serve() refuses a plugin this runtime does not host', async () => {
+    const server = await broker();
+    const caller = await callerSide(server);
+    await expect(
+      caller.runtime.serve({ from: caller.echo, to: caller.client, capability: ECHO }),
+    ).rejects.toThrow('EAPP_PLUGIN_NOT_FOUND');
+    await caller.runtime.shutdown();
+  });
+});
