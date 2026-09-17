@@ -8,17 +8,22 @@
 
 ## 0. 一句话结论
 
-仓库里**只有一份设计草案**。这份草案写作时假定 `v3.0.0-core` 与 `v3.1.0-interaction` 已经冻结，
-但这两层在仓库中**完全不存在**——不是"没实现"，是"连文字都没有"。
+三份规范都在，但**它们互相不兼容**，而且**没有一行实现**。
 
-同时，State Mode 自身**也还不能实现**：它有 5 个 P0 级的未定义/自相矛盾点，
-照抄 §14 的参考实现会直接违反 §3–§13 的规范条文。
+最要命的一条不是缺陷数量，而是**冻结链条断了**：
+v3.2 的文档头写「前置：v3.0.0-core FROZEN / v3.1.0-interaction SEMANTIC FROZEN」，
+但 v3.1 的正文自述 **Draft**（§14「冻结声明（草案）」，文末「EaPP v3.1.0 Interaction Layer — Draft」）。
+v3.2 把"与 v3.1 的接口一致性验证 ✅"当作已满足的冻结条件——**那个基线不存在，而且已经和 v3.2 冲突了**。
 
-要交付"万物皆插件"的 EaPP Runtime，缺的不是一个补丁，而是三样东西：
+缺的是四样东西：
 
-1. **前置规范**（v3.0 组合本体 + v3.1 交互层）——State Mode 是它们的第四种 mode，没有前两层，它悬空；
-2. **v3.2 的最后一次语义收敛**——Final Review 要处理的是下面 F-01…F-18，而不是走流程；
-3. **整个工程与运行时本体**——0 行代码、0 个测试、无 git、无构建。
+1. **v3.1 的一次真正冻结**——它是 DRAFT，且与 v3.2 有 12 处冲突（X-1…X-12，5 处 P0）。
+   v3.0 已冻结不能动，所以 v3.1 是唯一还能低成本修复的那一层；**它必须先冻结**。
+2. **v3.2 的最后一次语义收敛**——40 条内部缺陷（F-01…F-39，12 处 P0），
+   照抄 §14 的参考实现会直接违反 §3–§13 的规范条文。
+3. **整个工程与运行时本体**——0 行代码、0 个测试、无构建、无一致性套件。
+4. **一套把"冻结"变成可验证动作的机制**——v3.0 §19.2 早就要求"每个不变量 MUST 至少有一个测试用例"，
+   但三份文档的测试节都只有骨架和 `...`。
 
 ---
 
@@ -26,17 +31,19 @@
 
 | 资产 | 状态 | 证据 |
 |---|---|---|
-| `v3.0.0-core` 规范 | ❌ 不存在 | 全仓库仅 1 个文件 |
-| `v3.1.0-interaction` 规范 | ❌ 不存在 | 同上 |
-| `v3.2.0-state` 草案 | ✅ 1 份（r2） | `tmp/draft/…r2.md` 51965 字节 |
+| `v3.0.0-core` 规范 | ✅ 存在，**真冻结** | §0 L21「本文自发布之日起冻结」 |
+| `v3.1.0-interaction` 规范 | ⚠️ 存在，但是 **DRAFT** | §14 L1128「冻结声明（草案）」；文末 L1176「Draft」 |
+| `v3.2.0-state` 草案 | ✅ 1 份（r2） | `tmp/draft/…r2.md`，51965 字节 / 1739 行 |
 | 源码 | ❌ 0 行 | 无 `packages/` |
 | 测试 | ❌ 0 个 | 无 `tests/` |
-| 构建配置 | ❌ 无 | 无 `package.json` / `tsconfig.json` |
-| git 仓库 | ❌ 无 | `fatal: not a git repository` |
+| 构建配置 | ✅ 本轮已补 | `package.json` / `tsconfig.json` / `vitest.config.ts` |
+| git 仓库 | ✅ 本轮已补 | 3 次提交 |
 | CI | ❌ 无 | — |
-| docs 树 | ❌ 无 | 规范/审查记录/changelog 无处安放 |
+| docs 树 | ✅ 本轮已补 | `docs/analysis/`、`docs/spec/` |
 
-> 注：v3.0.0 / v3.1.0 两份文档在分析过程中被补入 `tmp/draft/`，
+> **三份文档的成熟度不对齐**：v3.0 已冻结且不能动，v3.1 是草案可以改，
+> 而 v3.2 在头部把 v3.1 当成已冻结的既定事实，并在其上推导了 40 条规则。
+> v3.0.0 / v3.1.0 两份文档在分析过程中被补入 `tmp/draft/`，
 > §2 已据此重写（初版曾判定"前置规范不存在"，该判定已作废）。
 > 结论没有变好，只是从"缺失"变成了"存在但互相冲突"——见 §2b。
 
@@ -380,8 +387,10 @@ v3.2 全篇没有一处提到 `delivery` 或这两条义务 —— State Mode �
 ## 6. 缺口 E：运行时层 —— 目标本体的 100% 空白
 
 你的目标是"让彼此独立的 Plugin 可以被**发现、连接、激活、通信、调用**"，
-即"万物皆插件"。这属于 v3.0 组合层，**当前零覆盖**。
-v3.2 只解决"共享状态"这一件事（还是第四种 mode）。
+即"万物皆插件"。这属于 v3.0 组合层：**语义已冻结，实现为零**。
+v3.0 定义了 5 个本体（Identity / Capability / Plugin / Binding / Lifecycle）、
+2 个 Discovery 操作、6 个 Composition/Lifecycle 原语，
+以及一个只有 3 个方法的 `BootstrapRuntime`——全部只有接口，没有一行实现。
 
 | # | 能力 | 依赖的规范概念 | 状态 |
 |---|---|---|---|
@@ -413,30 +422,36 @@ v3.2 只解决"共享状态"这一件事（还是第四种 mode）。
 ## 8. 建议的恢复顺序
 
 ```
-Step 1  工程骨架     git init + pnpm workspace + TS strict + vitest + docs 树
-Step 2  v3.2 收敛    解决 F-01…F-18  →  docs/spec/v3.2.0-state.md (FROZEN)
-Step 3  前置重建     v3.0.0-core / v3.1.0-interaction 规范（标注 reconstructed）→ FROZEN
-Step 4  实现         packages/{core,interaction,state,transport-memory}
-Step 5  一致性       §15 conformance 全绿 + v3.0/v3.1 自测
-Step 6  运行时       E1…E10（发现/连接/激活/通信/调用）
-Step 7  冻结报告     v3.2.0 FROZEN + Conformance Report + Changelog
+Step 1  工程骨架      ✅ git init + pnpm workspace + TS strict + vitest + docs 树
+Step 2  v3.1 收敛冻结  ← 关键新增步骤，必须先做
+                        v3.1 是 DRAFT，与 v3.2 有 X-1…X-12 共 12 处冲突（5 处 P0）
+                        修订为自洽版本 → 补齐一致性测试 → 标记 v3.1.0 FROZEN
+Step 3  v3.2 r3       在已冻结的 v3.1 之上解决 F-01…F-39 + X-1…X-12
+                       → docs/spec/v3.2.0-state.md (FROZEN)
+Step 4  实现          packages/{core,interaction,state,transport/memory}
+Step 5  一致性        全绿 + 不变量覆盖差集为空（v3.0 §19.2 的冻结义务）
+Step 6  运行时        Bootstrap + 发现/连接/激活/通信/调用
+Step 7  冻结报告      ConformanceClaim（v3.0 §19.3 的冻结接口）+ changelog
 ```
 
-> **顺序上的一个判断**：Step 2 与 Step 3 谁先都行，但 **Step 3 不能跳过**。
-> 没有 v3.1 的 `Cursor` / `AckContext` / `Subscription` / `Transport` 定义，
-> Step 4 的 `packages/interaction` 无从写起，`packages/state` 也没有基类可继承。
-> 而 F-05（历史模型）的确定又会反过来改 `Cursor` 的定义——所以
-> **建议 Step 2 与 Step 3 合并成一次"三层联合收敛"，先定 Cursor/Revision/序号模型，再分头冻结**。
+> **顺序上的硬约束（裁定 R-0）**：
+>
+> v3.0 已冻结，本轮**不能动**。v3.1 是 DRAFT，所以**可以直接修订**而不触发勘误流程。
+> 一旦 v3.2 抢先在冲突的 v3.1 上冻结，X-2（`revision: number` vs `Revision = string`）
+> 与 X-4（`AckContext.nack`）就会从"改一份草案"变成"协调两个冻结层之间的永久不兼容"。
+>
+> 因此：**v3.1 必须先冻结，v3.2 才能冻结。**
 
 ---
 
-## 9. 需要确认的三件事
+## 9. 需要确认的事
 
-| # | 问题 | 我的建议 |
+| # | 问题 | 状态 |
 |---|---|---|
-| Q1 | v3.0 / v3.1 是否有原文可以放进来？ | 若无可依据 v3.2 引用**反向重建**，并在文件头标注 `reconstructed` |
-| Q2 | 运行时本体的范围：先做最小可运行内核，还是一次做全 E1…E10？ | 先 Step 1–5 打通"能跑 + 全绿"，再攻 E1…E10 |
-| Q3 | 技术栈确认：TypeScript + pnpm + vitest（文档已假定）？ | 确认，且 TS 开 `strict` + `exactOptionalPropertyTypes` |
+| Q1 | v3.0 / v3.1 是否有原文？ | ✅ **已解决**——原文已补入，由此产生了 §2b 的 12 处冲突与决议 R-0…R-13 |
+| Q2 | 运行时本体的范围：先做最小可运行内核，还是一次做全 E1…E10？ | ⬜ 待定。建议先 Step 2–5 打通"能跑 + 全绿"，再攻 E1…E10 |
+| Q3 | 技术栈确认：TypeScript + pnpm + vitest？ | ✅ 已按此搭好骨架（TS 7.0.2 + vitest 5.0.1，strict + exactOptionalPropertyTypes） |
+| **Q4** | **v3.1 的修订由谁拍板？** | ⬜ **待定，且是当前唯一的阻塞点**。R-1…R-12 会改动 v3.1 的正文（含 `revision` 类型、`AckContext` 用法、目录布局、`TransportCapabilities`）。这些修订不改动 v3.0，但会改动 v3.2 所依赖的每一个接口 |
 
 ---
 
