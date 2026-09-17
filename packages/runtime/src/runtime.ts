@@ -359,9 +359,17 @@ export class EappRuntime {
 
   // ---------------------------------------------------------- 通信 communicate
 
-  /** event / stream: append a message to a channel. */
+  /**
+   * event / stream: append a message to a channel.
+   *
+   * Refuses on a DRAINING channel. v3.1 §2.4 defines DRAINING as "stop accepting new work,
+   * let in-flight finish", and CC-2 puts a channel into that state whenever its Binding
+   * derives to DORMANT — so publishing through a suspended composition has to fail rather
+   * than quietly queue work nobody is going to run.
+   */
   async publish(request: ConnectRequest, message: unknown): Promise<string> {
     const { channel } = await this.connect(request);
+    channel.requireActive('publish');
     return this.transport.send(channel.id, message);
   }
 
@@ -372,6 +380,10 @@ export class EappRuntime {
     options: SubscriptionOptions = {},
   ): Promise<Subscription<RuntimeMessage>> {
     this.#assertLive();
+    // Same rule as publish: DRAINING means the composition is paused, so a new consumer
+    // must not attach to it. Resolved through the interaction layer, so a channel the
+    // runtime did not derive itself is still checked.
+    this.interaction.channel(channelId)?.requireActive('subscribe');
     const transport = this.transport;
     return TransportSubscription.create<RuntimeMessage>(channelId, options, {
       // `resolveAnchor` and `waitForChange` are optional on the v3.1 Transport: a transport

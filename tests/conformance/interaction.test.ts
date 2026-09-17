@@ -920,6 +920,63 @@ describe('CG: ConsumerGroup', () => {
   });
 });
 
+// =============================================================================
+// Guards that were declared but had no producer until now
+// =============================================================================
+describe('capability and lifecycle guards', () => {
+  test('TR-4: a Channel MUST NOT use a delivery guarantee the transport does not declare', async () => {
+    const transport = makeTransport();
+    (transport as unknown as { capabilities: TransportCapabilities }).capabilities = {
+      ...transport.capabilities,
+      delivery: { ...transport.capabilities.delivery, atLeastOnce: false },
+    };
+    const interaction = new InteractionLayerImpl({ transport });
+
+    // stream forces at-least-once, so it must be refused outright rather than carried by a
+    // transport that never promised it (TR-3: MUST NOT fake support).
+    await expect(interaction.createChannel({ binding: 'b', mode: 'stream' })).rejects.toThrow(
+      'EAPP_DELIVERY_UNSUPPORTED',
+    );
+    await expect(
+      interaction.createChannel({ binding: 'b', mode: 'state' }),
+    ).rejects.toThrow('EAPP_DELIVERY_UNSUPPORTED');
+    // A guarantee the transport does advertise still works.
+    await expect(
+      interaction.createChannel({ binding: 'b', mode: 'event', delivery: 'at-most-once' }),
+    ).resolves.toBeDefined();
+  });
+
+  test('EAPP_CHANNEL_DRAINING: a draining channel refuses new work', async () => {
+    const transport = makeTransport();
+    const interaction = new InteractionLayerImpl({ transport });
+    const channel = await interaction.createChannel({ binding: 'b', mode: 'event' });
+
+    expect(() => channel.requireActive('publish')).toThrow('EAPP_CHANNEL_INVALID'); // still OPEN
+    await channel.connect();
+    expect(() => channel.requireActive('publish')).not.toThrow();
+
+    await channel.drain();
+    expect(() => channel.requireActive('publish')).toThrow('EAPP_CHANNEL_DRAINING');
+
+    await channel.close();
+    expect(() => channel.requireActive('publish')).toThrow('EAPP_CHANNEL_CLOSED');
+  });
+
+  test('EAPP_CURSOR_INVALID: a cursor from another transport is rejected', async () => {
+    const a = makeTransport();
+    const b = makeTransport();
+    const foreign = await b.send('room', { n: 1 });
+
+    // Accepting it would read the wrong position — or silently nothing at all.
+    await expect(a.readAfter('room', foreign, { all: true })).rejects.toThrow('EAPP_CURSOR_INVALID');
+    await expect(a.readChangesAfter('room', foreign, { all: true })).rejects.toThrow(
+      'EAPP_CURSOR_INVALID',
+    );
+    // The sentinel and a cursor this transport issued both remain acceptable.
+    await expect(a.readAfter('room', '', { all: true })).resolves.toEqual([]);
+  });
+});
+
 describe('CC: Composition boundary', () => {
   test('CC-3 / CC-8 / CC-9: creation, state and multiplicity', async () => {
     const transport = makeTransport();

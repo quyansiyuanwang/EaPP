@@ -9,7 +9,7 @@ import {
   type DeliveryGuarantee,
   type ManagedChannel,
 } from './channel.js';
-import type { Transport } from './transport.js';
+import { assertTransportSupportsDelivery, type Transport } from './transport.js';
 import {
   ConsumerGroupImpl,
   type ConsumerGroup,
@@ -159,6 +159,11 @@ export class InteractionLayerImpl implements InteractionLayer {
     // CC-4: derive the guarantee from the mode when the caller omits it.
     const delivery = request.delivery ?? defaultDeliveryFor(request.mode);
     assertDeliveryAllowed(request.mode, delivery); // CC-5 / DL-6
+
+    // TR-4: "Channel MUST NOT use unsupported features." Until now the capability flags
+    // were declared and never consulted, so a transport with `atLeastOnce: false` would
+    // happily carry a channel that promised at-least-once — the one thing TR-3 forbids.
+    assertTransportSupportsDelivery(this.#transport, delivery);
 
     const id = this.#nextId();
     if (this.#channels.has(id)) {

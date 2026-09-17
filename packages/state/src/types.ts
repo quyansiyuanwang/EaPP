@@ -48,12 +48,6 @@ export interface StateUpdate {
   actor?: Identity;
 }
 
-export interface StateDeleteRequest {
-  key: string;
-  expectedRevision: ExpectedRevision;
-  actor?: Identity;
-}
-
 export type StatePattern =
   | { readonly key: string }
   | { readonly prefix: string }

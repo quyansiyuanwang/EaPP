@@ -483,6 +483,40 @@ describe('runtime: API contract', () => {
   });
 });
 
+describe('runtime: composition lifecycle', () => {
+  test('a suspended composition refuses new work end to end', async () => {
+    const { runtime, logger, app } = await twoPlugins();
+    const { channel } = await runtime.connect({
+      from: logger,
+      to: app,
+      capability: LOGGING,
+      mode: 'event',
+    });
+    await runtime.activate(logger);
+    await runtime.activate(app);
+    expect(channel.state).toBe('ACTIVE');
+
+    await runtime.publish({ from: logger, to: app, capability: LOGGING, mode: 'event' }, { n: 1 });
+
+    // suspend() derives the Binding to DORMANT, which per CC-2 drains the Channel.
+    await runtime.suspend(logger);
+    expect(channel.state).toBe('DRAINING');
+
+    // DRAINING means "stop accepting new work, let in-flight finish" — so this has to fail
+    // rather than queue work into a composition nobody is going to run.
+    await expect(
+      runtime.publish({ from: logger, to: app, capability: LOGGING, mode: 'event' }, { n: 2 }),
+    ).rejects.toThrow('EAPP_CHANNEL_DRAINING');
+
+    // ...and it comes back once the composition does.
+    await runtime.resume(logger);
+    await expect(
+      runtime.publish({ from: logger, to: app, capability: LOGGING, mode: 'event' }, { n: 3 }),
+    ).resolves.toBeDefined();
+    await runtime.shutdown();
+  });
+});
+
 describe('runtime: shutdown', () => {
   test('operations after shutdown fail cleanly', async () => {
     const { runtime } = await twoPlugins();

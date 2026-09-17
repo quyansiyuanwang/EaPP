@@ -1,5 +1,6 @@
 import { EappError } from '@eapp/core';
 import type { Cursor, CursorAnchor } from './cursor.js';
+import type { DeliveryGuarantee } from './channel.js';
 
 /**
  * Transport — EaPP v3.1.0 §10.
@@ -109,5 +110,28 @@ export function assertDeclared(transport: Transport): void {
   const c: Partial<TransportCapabilities> | undefined = transport.capabilities;
   if (!c || typeof c.persistent !== 'boolean' || typeof c.ordering !== 'string') {
     throw new EappError('EAPP_UNSUPPORTED', `transport ${transport.id} does not declare capabilities`);
+  }
+}
+
+/**
+ * TR-4: a Channel MUST NOT use a feature the transport does not provide.
+ *
+ * Declaring a capability and never consulting it is the same as not declaring it — worse,
+ * because it looks enforced. A transport whose `atLeastOnce` is false must not be allowed
+ * to carry a channel that promises at-least-once.
+ */
+export function assertTransportSupportsDelivery(
+  transport: Transport,
+  delivery: DeliveryGuarantee,
+): void {
+  const declared = transport.capabilities.delivery as
+    | { atMostOnce?: boolean; atLeastOnce?: boolean }
+    | undefined;
+  const supported = delivery === 'at-least-once' ? declared?.atLeastOnce : declared?.atMostOnce;
+  if (supported !== true) {
+    throw new EappError(
+      'EAPP_DELIVERY_UNSUPPORTED',
+      `transport ${transport.id} does not declare '${delivery}' support`,
+    );
   }
 }

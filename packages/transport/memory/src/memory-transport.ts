@@ -137,6 +137,21 @@ export class MemoryTransport implements StateTransport {
     }
   }
 
+  /**
+   * A cursor is only meaningful inside the transport that issued it. Accepting a foreign
+   * one would silently read the wrong position — or nothing at all — so it is rejected
+   * with the code v3.1 §13 reserves for exactly this case.
+   */
+  #requireOwnCursor(value: Cursor | undefined, label: string): void {
+    if (value === undefined || value === BEGINNING) return;
+    if (typeof value !== 'string' || !value.startsWith(`${this.id}!`)) {
+      throw new EappError(
+        'EAPP_CURSOR_INVALID',
+        `${label} '${String(value)}' was not issued by transport ${this.id}`,
+      );
+    }
+  }
+
   // ---------------------------------------------------------------- Transport
 
   async send(channel: string, msg: unknown): Promise<Cursor> {
@@ -155,6 +170,7 @@ export class MemoryTransport implements StateTransport {
     cursor: Cursor | undefined,
     pattern: Pattern,
   ): Promise<TransportMessage[]> {
+    this.#requireOwnCursor(cursor, 'cursor');
     const from = cursor ?? BEGINNING;
     const log = this.#messages.get(channel) ?? [];
     return log
@@ -177,6 +193,8 @@ export class MemoryTransport implements StateTransport {
     if (anchor === 'latest') {
       return this.#anchors.get(channel) ?? BEGINNING;
     }
+    // A concrete cursor: it must be one this transport issued.
+    this.#requireOwnCursor(anchor, 'cursor');
     return anchor;
   }
 
@@ -325,6 +343,7 @@ export class MemoryTransport implements StateTransport {
     cursor: Cursor | undefined,
     pattern: StatePattern,
   ): Promise<StateChange[]> {
+    this.#requireOwnCursor(cursor, 'cursor');
     const from = cursor ?? BEGINNING;
     const log = this.#changes.get(channel) ?? [];
     return log

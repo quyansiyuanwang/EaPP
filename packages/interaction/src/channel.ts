@@ -36,6 +36,8 @@ export interface ManagedChannel extends Channel {
   connect(): Promise<void>;
   drain(): Promise<void>;
   close(): Promise<void>;
+  /** Throws unless the channel is ACTIVE. See the implementation for the three codes. */
+  requireActive(operation: string): void;
 }
 
 /**
@@ -101,15 +103,28 @@ export class ChannelImpl implements ManagedChannel {
     this.#state = 'CLOSED';
   }
 
-  /** Guard for operations that require an ACTIVE channel. */
+  /**
+   * Guard for operations that require an ACTIVE channel.
+   *
+   * The three failure modes are deliberately distinct, because they call for different
+   * responses: CLOSED is terminal, DRAINING means "not now, the composition is paused"
+   * (§2.4 — stop accepting new work, let in-flight finish), and OPEN means the caller
+   * simply forgot to connect().
+   */
   requireActive(operation: string): void {
     if (this.#state === 'CLOSED') {
       throw new EappError('EAPP_CHANNEL_CLOSED', `cannot ${operation} on a closed channel`);
     }
-    if (this.#state !== 'ACTIVE') {
+    if (this.#state === 'DRAINING') {
+      throw new EappError(
+        'EAPP_CHANNEL_DRAINING',
+        `cannot ${operation} while the channel is draining (its Binding is DORMANT)`,
+      );
+    }
+    if (this.#state === 'OPEN') {
       throw new EappError(
         'EAPP_CHANNEL_INVALID',
-        `cannot ${operation} on a channel in state ${this.#state}`,
+        `cannot ${operation} on a channel that has not been connected`,
       );
     }
   }
