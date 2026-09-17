@@ -225,8 +225,8 @@ Subscription 合规，对应 `SW-1`）。
 
 ## 7. 实现过程中被发现的真实缺陷
 
-它们**不是"代码写错了"**，而是规范或契约把语义留白的地方 ——
-第 1、2、6 条恰好落在 r2 用 `// (完整实现略，参考 v3.1 Subscription)` 略过的那几行上。
+它们**不是"代码写错了"**，而是语义留白的地方 —— 第 1、2、6 条恰好落在
+当初被一句话略过的那几行上（原文写的是"完整实现略，参考 v3.1 Subscription"）。
 
 ### 由测试发现
 
@@ -274,3 +274,21 @@ Subscription 合规，对应 `SW-1`）。
 > 第 10 / 11 条最重要，因为它们暴露了闸门的盲区：
 > 原 `check-invariants` 只问"这个 ID 有没有测试"，不问"这个 ID 有没有在正文里被定义"。
 > 补上 `UNSTATED` 检查后，一运行立刻又扫出 v3.2 的 10 条。
+
+### 由跨实现 harness 发现
+
+上表三类都出自仓库内部：测试、写文档、跑示例。这一节记的是**黑盒检查**找到的 ——
+harness 不引用任何 `@eapp/*`，只按 [`driver 协议`](../conformance/driver.md) 提问。
+
+| # | 缺陷 | 后果 |
+|---|---|---|
+| 18 | `assertDeliveryAllowed` 只检查 mode 与 delivery 是否**相容**，从不检查 delivery 是否为规范声明的两个值之一。**已修复**：补上取值闭合性检查（`packages/interaction/src/channel.ts`）；检查项 `DL-1 / DL-2`（`conformance/harness/checks/interaction.mjs`） | `channel.create` 接受 `delivery: 'exactly-once'` 并把它挂在 Channel 上，而 `DL-1` 要求 delivery MUST 是两个值之一、`DL-2` 要求 exactly-once **MUST NOT 出现在 Core**。TypeScript 调用方传不进来，但这个值来自线路或另一种语言时，类型系统不在场 |
+
+`mode` 当时已经有 `VALID_MODES` 校验，`delivery` 没有 —— **同一条原则只应用到了两个参数中的一个**。
+这一类只有黑盒检查能发现：单元测试传的是类型允许的值，所以永远不会碰到它。
+
+发现它的检查项本身也是补写的。`CG-8`、`L-6 / CG-6`、`DL-1 / DL-2` 先前都被列在
+[`conformance/README.md`](../conformance/README.md) 的"检查不了"表里，理由是错的 ——
+`CG-8` 问的是"这个名字指向什么"（与 `SUB-4` 问的"名字是否非空"不同），
+`L-2` / `L-3` / `L-6` 可以从 ConsumerGroup 那一侧观察。**把可检查的东西说成不可检查，
+本身就是一类缺陷。**
