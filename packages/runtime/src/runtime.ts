@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-
 import {
   EappError,
   IdentityRegistry,
@@ -15,11 +13,16 @@ import {
   type CompositionCoreImpl,
 } from '@eapp/core';
 import {
+  CorrelationTracker,
   InteractionLayerImpl,
   TransportSubscription,
+  isRequestExpired,
+  newCorrelationId,
   type ChannelMode,
   type DeliveryGuarantee,
   type ManagedChannel,
+  type RequestMessage,
+  type ResponseMessage,
   type Subscription,
   type SubscriptionOptions,
   type TransportMessage,
@@ -82,20 +85,19 @@ export interface RuntimeMessage extends TransportMessage {
   nack(): Promise<void>;
 }
 
-interface RequestEnvelope {
+/**
+ * The runtime's request-mode envelopes extend the frozen v3.1 §3.1 shapes rather than
+ * redefining them: `operation`, `payload`, `deadline` and `result` all keep their
+ * specified names. Only two runtime-local fields are added — a discriminator, because one
+ * channel carries both directions, and the caller's identity.
+ */
+interface RequestEnvelope extends RequestMessage {
   type: 'request';
-  correlationId: string;
-  capability: string;
   caller: string;
-  payload: unknown;
 }
 
-interface ResponseEnvelope {
+interface ResponseEnvelope extends ResponseMessage {
   type: 'response';
-  correlationId: string;
-  ok: boolean;
-  payload?: unknown;
-  error?: { code: string; message: string };
 }
 
 interface PendingInvocation {
@@ -143,6 +145,8 @@ export class EappRuntime {
   /** bindingId -> request dispatcher. */
   readonly #dispatchers = new Map<string, AbortController>();
   readonly #pending = new Map<string, PendingInvocation>();
+  /** RQ-1 / RQ-2 / RQ-3: one request, at most one response, matching correlationId. */
+  readonly #correlations = new CorrelationTracker();
   #shutDown = false;
 
   private constructor(options: EappRuntimeOptions) {
@@ -408,10 +412,14 @@ export class EappRuntime {
     const channel = await this.#ensureChannel(binding, 'request');
     this.#startDispatcher(binding, channel);
 
-    const correlationId = randomUUID();
+    const correlationId = newCorrelationId('invoke');
+    this.#correlations.begin(correlationId); // RQ-1
+    const deadline = Date.now() + timeoutMs;
+
     const reply = new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#pending.delete(correlationId);
+        this.#correlations.abandon(correlationId); // RQ-4: a timed-out request is settled
         reject(
           new EappError(
             'EAPP_TIMEOUT',
@@ -425,9 +433,10 @@ export class EappRuntime {
     await this.transport.send(channel.id, {
       type: 'request',
       correlationId,
-      capability: request.capability.name,
+      operation: request.capability.name,
       caller: identityKey(request.from),
       payload: request.payload,
+      deadline,
     } satisfies RequestEnvelope);
 
     return reply;
@@ -494,12 +503,15 @@ export class EappRuntime {
   }
 
   #settle(envelope: ResponseEnvelope): void {
+    // RQ-2 / RQ-3: a second reply to the same request, or a reply nobody is waiting for
+    // (a late one after a timeout), is dropped rather than resolving the call twice.
+    if (!this.#correlations.settle(envelope)) return;
     const pending = this.#pending.get(envelope.correlationId);
-    if (!pending) return; // a late reply for a timed-out call; drop it
+    if (!pending) return;
     this.#pending.delete(envelope.correlationId);
     clearTimeout(pending.timer);
     if (envelope.ok) {
-      pending.resolve(envelope.payload);
+      pending.resolve(envelope.result);
       return;
     }
     pending.reject(
@@ -513,28 +525,36 @@ export class EappRuntime {
   async #serve(binding: Binding, channel: ManagedChannel, envelope: RequestEnvelope): Promise<void> {
     const callee = binding.from; // v3.0: `from` provides the capability
     const module = this.#modules.get(identityKey(callee));
-    const handler = module?.handlers?.[envelope.capability];
+    const handler = module?.handlers?.[envelope.operation];
 
     let response: ResponseEnvelope;
-    if (!handler) {
+    if (isRequestExpired(envelope)) {
+      // RQ-4: the deadline has already passed, so the work must not be started at all.
+      response = {
+        type: 'response',
+        correlationId: envelope.correlationId,
+        ok: false,
+        error: { code: 'EAPP_TIMEOUT', message: 'request deadline already passed' },
+      };
+    } else if (!handler) {
       response = {
         type: 'response',
         correlationId: envelope.correlationId,
         ok: false,
         error: {
           code: 'EAPP_CAPABILITY_NOT_EXPOSED',
-          message: `plugin '${identityKey(callee)}' has no handler for '${envelope.capability}'`,
+          message: `plugin '${identityKey(callee)}' has no handler for '${envelope.operation}'`,
         },
       };
     } else {
       try {
-        const payload = await handler(envelope.payload, {
+        const result = await handler(envelope.payload, {
           caller: binding.to,
           callee,
-          capability: envelope.capability,
+          capability: envelope.operation,
           correlationId: envelope.correlationId,
         });
-        response = { type: 'response', correlationId: envelope.correlationId, ok: true, payload };
+        response = { type: 'response', correlationId: envelope.correlationId, ok: true, result };
       } catch (error) {
         response = {
           type: 'response',

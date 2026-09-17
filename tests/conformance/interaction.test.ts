@@ -2,18 +2,24 @@ import { describe, expect, test } from 'vitest';
 
 import type { Identity } from '@eapp/core';
 import {
+  CorrelationTracker,
   InteractionLayerImpl,
   LeaseManager,
   LocalAck,
+  TransportSubscription,
   assertCapability,
   assertDeclared,
   compareCursor,
   defaultDeliveryFor,
   isAnchorLiteral,
+  isRequestExpired,
   matchesPattern,
+  newCorrelationId,
   validatePattern,
   type BindingSource,
   type ChannelMode,
+  type Cursor,
+  type CursorAnchor,
   type Transport,
   type TransportCapabilities,
 } from '@eapp/interaction';
@@ -509,8 +515,186 @@ describe('TR: Transport', () => {
 });
 
 // =============================================================================
-// CC — composition boundary
+// RQ / EV / ST — mode messages (§3)
 // =============================================================================
+
+interface DeliveredMessage {
+  cursor: Cursor;
+  payload: unknown;
+  ack(): Promise<void>;
+  nack(): Promise<void>;
+}
+
+/** A v3.1 Subscription over raw transport messages, used by the EV-* / ST-* tests. */
+async function messageSubscription(
+  transport: MemoryTransport,
+  channelId: string,
+  cursor?: CursorAnchor,
+): Promise<TransportSubscription<DeliveredMessage>> {
+  return TransportSubscription.create<DeliveredMessage>(
+    channelId,
+    cursor === undefined ? {} : { cursor },
+    {
+      head: () => transport.resolveAnchor(channelId, 'latest'),
+      earliest: async () => '' as Cursor,
+      readAfter: async (position, ack) => {
+        const messages = await transport.readAfter(channelId, position, { all: true });
+        return messages.map((message) => {
+          const context = ack(message.cursor);
+          return {
+            cursor: message.cursor,
+            item: {
+              cursor: message.cursor,
+              payload: message.payload,
+              ack: () => context.ack(),
+              nack: () => context.nack(),
+            },
+          };
+        });
+      },
+      waitForChange: (position, signal) => transport.waitForChange(channelId, position, signal),
+    },
+  );
+}
+
+function collect<T>(source: AsyncIterable<T>, autoAck = false) {
+  const items: T[] = [];
+  const task = (async () => {
+    for await (const item of source) {
+      items.push(item);
+      if (autoAck) await (item as unknown as { ack(): Promise<void> }).ack();
+    }
+  })().catch(() => undefined);
+  return { items, settle: async () => task };
+}
+
+describe('RQ: request mode', () => {
+  test('RQ-1: every request carries a unique correlationId', () => {
+    const tracker = new CorrelationTracker();
+    const ids = new Set<string>();
+    for (let i = 0; i < 200; i += 1) {
+      const id = newCorrelationId('t');
+      expect(ids.has(id)).toBe(false);
+      ids.add(id);
+      tracker.begin(id);
+    }
+    expect(ids.size).toBe(200);
+    // Re-using an id that is still in flight is refused rather than silently aliasing.
+    const duplicate = newCorrelationId('dup');
+    tracker.begin(duplicate);
+    expect(() => tracker.begin(duplicate)).toThrow('EAPP_INTERNAL');
+  });
+
+  test('RQ-2 / RQ-3: a request maps to at most one response, quoting its own id', () => {
+    const tracker = new CorrelationTracker();
+    const requestId = newCorrelationId('r');
+    tracker.begin(requestId);
+
+    // RQ-3: a response for a different request settles nothing.
+    expect(tracker.settle({ correlationId: 'someone-else', ok: true })).toBe(false);
+    expect(tracker.has(requestId)).toBe(true);
+
+    // RQ-2: the first matching response settles it...
+    expect(tracker.settle({ correlationId: requestId, ok: true, result: 1 })).toBe(true);
+    // ...and a second one is dropped instead of resolving the call twice.
+    expect(tracker.settle({ correlationId: requestId, ok: true, result: 2 })).toBe(false);
+    expect(tracker.size).toBe(0);
+  });
+
+  test('RQ-4: a request past its deadline is treated as timed out', () => {
+    const fresh = { correlationId: 'a', operation: 'op', payload: null, deadline: 2000 };
+    const stale = { correlationId: 'b', operation: 'op', payload: null, deadline: 1000 };
+    expect(isRequestExpired(fresh, 1500)).toBe(false);
+    expect(isRequestExpired(stale, 1500)).toBe(true); // MUST NOT be started
+    // An absent deadline never expires.
+    expect(isRequestExpired({ correlationId: 'c', operation: 'op', payload: null }, 1e12)).toBe(
+      false,
+    );
+  });
+});
+
+describe('EV: event mode', () => {
+  test('EV-1: an event expects no response', async () => {
+    const transport = makeTransport();
+    // The frozen EventMessage has a topic and no correlationId: there is nothing to reply to.
+    const event = { topic: 'log', payload: { line: 'x' } };
+    expect('correlationId' in event).toBe(false);
+
+    const cursor = await transport.send('room', event);
+    expect(typeof cursor).toBe('string'); // sending yields a position, never a reply
+  });
+
+  test('EV-2: an event MAY be delivered zero times', async () => {
+    const transport = makeTransport();
+    await transport.send('room', { topic: 'log', payload: 1 });
+
+    // A consumer that joins at "latest" misses the past event entirely.
+    const subscription = await messageSubscription(transport, 'room', 'latest');
+    const seen = collect(subscription);
+    await sleep(80);
+    expect(seen.items).toHaveLength(0);
+    await subscription.close();
+    await seen.settle();
+  });
+
+  test('EV-3: an event MAY be delivered multiple times', async () => {
+    const transport = makeTransport();
+    await transport.send('room', { topic: 'log', payload: 1 });
+
+    const subscription = await messageSubscription(transport, 'room', 'earliest');
+    const seen = collect(subscription); // never acks
+    await waitFor(() => seen.items.length >= 2, 900);
+    expect(seen.items.length).toBeGreaterThanOrEqual(2);
+    await subscription.close();
+    await seen.settle();
+  });
+});
+
+describe('ST: stream mode', () => {
+  test('ST-1: message cursors increase globally within a channel', async () => {
+    const transport = makeTransport();
+    const first = await transport.send('stream', { n: 1 });
+    const second = await transport.send('stream', { n: 2 });
+    const third = await transport.send('stream', { n: 3 });
+    expect(compareCursor(second, first)).toBeGreaterThan(0);
+    expect(compareCursor(third, second)).toBeGreaterThan(0);
+  });
+
+  test('ST-2 / ST-3 / ST-4: resume by cursor, acked never returns, unacked may', async () => {
+    const transport = makeTransport();
+    await transport.send('stream', { n: 1 });
+    await transport.send('stream', { n: 2 });
+
+    // ST-3: ack both, remember the position, and the same position replays nothing.
+    const first = await messageSubscription(transport, 'stream', 'earliest');
+    const consumed = collect<DeliveredMessage>(first, true);
+    await waitFor(() => consumed.items.length >= 2);
+    const position = first.exportCursor();
+    await first.close();
+    await consumed.settle();
+
+    // ST-2: a consumer resuming from that cursor starts after it, not before.
+    await transport.send('stream', { n: 3 });
+    const resumed = await messageSubscription(transport, 'stream', position);
+    const replay = collect<DeliveredMessage>(resumed, true);
+    await waitFor(() => replay.items.length >= 1);
+    expect(replay.items.map((m) => (m.payload as { n: number }).n)).toEqual([3]);
+    await resumed.close();
+    await replay.settle();
+
+    // ST-4: a consumer that never acked may see the same message again. The first pass
+    // returns the whole log from the unmoved cursor; because nothing was acknowledged the
+    // cursor stays put and the next pass replays the same sequence from the start.
+    const unacked = await messageSubscription(transport, 'stream', 'earliest');
+    const loose = collect(unacked);
+    await waitFor(() => loose.items.length >= 4, 1200);
+    const delivered = loose.items.slice(0, 4).map((m) => (m.payload as { n: number }).n);
+    expect(delivered.slice(0, 3)).toEqual([1, 2, 3]);
+    expect(delivered[3]).toBe(delivered[0]); // redelivery of the unacknowledged message
+    await unacked.close();
+    await loose.settle();
+  });
+});
 describe('CC: Composition boundary', () => {
   test('CC-3 / CC-8 / CC-9: creation, state and multiplicity', async () => {
     const transport = makeTransport();

@@ -11,6 +11,7 @@ export * from './cursor.js';
 export * from './ack.js';
 export * from './lease.js';
 export * from './channel.js';
+export * from './messages.js';
 export * from './transport.js';
 export * from './subscription.js';
 export * from './interaction-layer.js';
