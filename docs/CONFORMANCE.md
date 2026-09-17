@@ -41,8 +41,8 @@ pnpm run conformance:external     # 33 条检查 × 2 套实现
   "eappVersion": "3.2.0",
   "levels": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "I1", "I2", "I3", "I4", "I5", "I6", "I7"],
   "testSuite": "conformance@3.2.0-r3",
-  "passed": 209,
-  "total": 209
+  "passed": 210,
+  "total": 210
 }
 ```
 
@@ -59,9 +59,9 @@ v3.2 没有定义独立的等级前缀（它的 §14 是不变量分组，不是
 | 层 | 不变量 | 覆盖 | 测试文件 |
 |---|---|---|---|
 | v3.0.0-core | 51 | **51 / 51** | `tests/conformance/core.test.ts` |
-| v3.1.0-interaction | 74 | **74 / 74** | `tests/conformance/interaction.test.ts` |
+| v3.1.0-interaction | 75 | **75 / 75** | `tests/conformance/interaction.test.ts` |
 | v3.2.0-state | 84 | **84 / 84** | `tests/conformance/state.test.ts` |
-| 合计 | **209** | **209 / 209** | 另加 `runtime.test.ts` 的端到端场景 |
+| 合计 | **210** | **210 / 210** | 另加 `runtime.test.ts` 的端到端场景 |
 
 ---
 
@@ -82,7 +82,7 @@ v3.0 §19.2 的冻结义务——**每个不变量 MUST 至少有一个对应的
 
 ```
 v3.0.0-core          invariant 51/51 covered   gate PASS
-v3.1.0-interaction   invariant 74/74 covered   gate PASS
+v3.1.0-interaction   invariant 75/75 covered   gate PASS
 v3.2.0-state         invariant 84/84 covered   gate PASS
     note             named but not declared: SUB-5, SUB-6, SUB-7, SUB-8, SUB-9
 ```

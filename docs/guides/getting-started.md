@@ -50,7 +50,7 @@ pnpm run verify
 | ⑥ 跨实现一致性 | `pnpm run conformance:external` | 用**不 import 任何 `@eapp/*`** 的 harness，按 [driver 协议](../../conformance/driver.md) 黑盒检查两套独立实现 |
 
 具体条数以命令输出为准 —— 文档里的数字会过期，闸门不会。
-写这份文档时是 199 条测试、209 条不变量、459 条链接、33 条跨实现检查 × 2 套实现。
+写这份文档时是 200 条测试、210 条不变量、462 条链接、33 条跨实现检查 × 2 套实现。
 
 第 ④ 段不是"覆盖率数字"，而是一组集合判定：它从每份规范末尾的
 「不变量」小节提取声明的 ID（v3.0 / v3.2 的标题是「不变量（冻结全集）」，
@@ -72,7 +72,7 @@ v3.0.0-core
 v3.1.0-interaction
   spec      docs/spec/v3.1.0-interaction.md
   suite     tests/conformance/interaction.test.ts
-  invariant 74/74 covered
+  invariant 75/75 covered
   gate      PASS
 
 v3.2.0-state

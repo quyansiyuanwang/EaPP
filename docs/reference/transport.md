@@ -159,7 +159,7 @@ TR-8  send 返回的 cursor MUST 在该 Channel 内严格大于此前所有 curs
 TR-2   Transport MUST 声明自己的能力
 TR-3   Transport MUST NOT 伪装支持 —— 缺失的声明按"不支持"处理
 TR-4   Channel MUST NOT 使用超出 Transport 能力的特性
-E1-10  不支持时 MUST 返回 EAPP_UNSUPPORTED；不支持 cursor 时 MUST 返回 EAPP_CURSOR_UNSUPPORTED
+TR-9  不支持时 MUST 返回 EAPP_UNSUPPORTED；不支持 cursor 时 MUST 返回 EAPP_CURSOR_UNSUPPORTED
 ```
 
 **未覆盖点（本页登记）**：实现的 `assertCapability()` 只接受 `'cursor'` 与 `'lease'` 两个特性，
@@ -232,8 +232,8 @@ v3.2 的状态一致性就相对于这个边界定义。
 
 | 码 | 触发条件 | retryable |
 |---|---|---|
-| `EAPP_UNSUPPORTED` | `assertDeclared()` 面对缺失能力声明的 Transport（TR-3）；`assertCapability(t, 'lease')` 而 `supportsLease === false`（TR-4 / E1-10）；`send()` 已关闭的 Transport | `false` |
-| `EAPP_CURSOR_UNSUPPORTED` | `assertCapability(t, 'cursor')` 而 `supportsCursor === false`（CR-5 / E1-10） | `false` |
+| `EAPP_UNSUPPORTED` | `assertDeclared()` 面对缺失能力声明的 Transport（TR-3）；`assertCapability(t, 'lease')` 而 `supportsLease === false`（TR-4 / TR-9）；`send()` 已关闭的 Transport | `false` |
+| `EAPP_CURSOR_UNSUPPORTED` | `assertCapability(t, 'cursor')` 而 `supportsCursor === false`（CR-5 / TR-9） | `false` |
 | `EAPP_CHANNEL_INVALID` | `validatePattern()` 收到非法 `Pattern`（不是对象、字段数不为 1、`all` 不为 `true`、`type` 不是字符串、未知字段）；`channelRef()` / `channelState()` 按不存在的 id 查询 | `false` |
 | `EAPP_MODE_INVALID` | `createChannel({ mode })` 的 `mode` 不属于四种冻结模式 | `false` |
 | `EAPP_DELIVERY_UNSUPPORTED` | `createChannel()` 为 `stream` / `state` 指定 `at-most-once`（CC-5 / DL-6） | `false` |
@@ -272,7 +272,7 @@ expect(await transport.readAfter('room', first, { all: true })).toHaveLength(1);
 expect(await transport.readAfter('room', undefined, { all: true })).toHaveLength(2);  // TR-6
 expect(await transport.readAfter('room', second, { all: true })).toEqual([]);         // TR-7
 
-// TR-4 / E1-10：不支持的特性必须显式失败，而不是静默降级
+// TR-4 / TR-9：不支持的特性必须显式失败，而不是静默降级
 const noCursor: Transport = {
   id: 'no-cursor',
   capabilities: { ...transport.capabilities, supportsCursor: false, supportsLease: false },

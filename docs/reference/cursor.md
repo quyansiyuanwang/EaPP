@@ -122,7 +122,7 @@ nack()   MUST NOT 推进 cursor
 
 | 码 | 触发条件 | retryable |
 |---|---|---|
-| `EAPP_CURSOR_UNSUPPORTED` | Transport 声明 `supportsCursor: false` 而 Channel 仍要使用游标（CR-5 / E1-10） | `false` |
+| `EAPP_CURSOR_UNSUPPORTED` | Transport 声明 `supportsCursor: false` 而 Channel 仍要使用游标（CR-5 / TR-9） | `false` |
 | `EAPP_CURSOR_TOO_OLD` | §6.2 规则 6：日志压缩后 `'earliest'` 无法定位。`SubscriptionSource.earliest()` 的契约如此声明，但 `MemoryTransport` 保留无界、永远不抛该码 —— **未覆盖** | `false` |
 | `EAPP_CURSOR_INVALID` | §13 声明了该码，实现中没有任何抛出点 —— **未覆盖** | `false` |
 

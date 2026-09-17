@@ -485,6 +485,35 @@ describe('TR: Transport', () => {
     expect(() => assertCapability(transport, 'lease')).toThrow('EAPP_UNSUPPORTED');
   });
 
+  /**
+   * This rule carried the id `E1-10` until it was renamed. `E1-*` looked like an
+   * erratum, so it fell outside the `TR-1..TR-8` range the summary declared — and
+   * the freeze gate enumerates the summary. The rule existed, was normative, and
+   * was never counted, never tested and never missed.
+   *
+   * It is the third time in this repository that a rule's *name* hid it from the
+   * gate rather than its absence: `onEvent` was declared and never called,
+   * `requireActive()` was written and never reached, and this one was named out of
+   * range. Renaming it to TR-9 is what made the gate notice.
+   */
+  test('TR-9: an unsupported feature is refused with the code that names it', () => {
+    const transport = makeTransport();
+    (transport as unknown as { capabilities: TransportCapabilities }).capabilities = {
+      ...transport.capabilities,
+      supportsCursor: false,
+      supportsLease: false,
+    };
+
+    // Cursor has a specific code, because "this Transport cannot order positions"
+    // is a different failure from "this Transport does not do that".
+    expect(() => assertCapability(transport, 'cursor')).toThrow('EAPP_CURSOR_UNSUPPORTED');
+    expect(() => assertCapability(transport, 'lease')).toThrow('EAPP_UNSUPPORTED');
+
+    // ...and neither may degrade silently into a no-op, which is the rule's point.
+    const supported = makeTransport();
+    expect(() => assertCapability(supported, 'cursor')).not.toThrow();
+  });
+
   test('TR-5 / TR-6 / TR-7 / TR-8: read and write semantics', async () => {
     const transport = makeTransport();
     const first = await transport.send('room', { type: 'a' });

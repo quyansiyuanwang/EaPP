@@ -92,7 +92,7 @@ export interface Transport {
 }
 
 /**
- * TR-4 / E1-10: a Channel MUST NOT use a feature the transport does not declare,
+ * TR-4 / TR-9: a Channel MUST NOT use a feature the transport does not declare,
  * and the failure MUST be explicit rather than a silent degradation.
  */
 export function assertCapability(transport: Transport, feature: 'cursor' | 'lease'): void {

@@ -8,15 +8,29 @@
 >
 > 它不是一个框架，不是一个库，不是一个运行时。**它是协议规范。**
 
-```bash
-pnpm install
-pnpm run verify   # typecheck + 一致性套件 + 5 个示例 + 两道闸门 + 跨实现一致性
-pnpm run demo     # 三个互不相识的插件，端到端跑一遍
-```
+---
+
+## 1. 协议规定的操作面
+
+实现方按规范实现下列五个操作，插件作者的全部组合工作由此完成：
+
+| 操作 | 语义 | 规范出处 |
+|---|---|---|
+| 发现 | 按能力、版本、约束检索可组合的插件 | v3.0 §8 |
+| 连接 | 在两个插件之间建立 Binding，并由该 Binding 派生 Channel | v3.0 §9 · v3.1 §12 |
+| 激活 | 将插件置入或移出 Active Composition | v3.0 §7 |
+| 通信 | 在 Channel 上以 request / event / stream / state 四种模式交互 | v3.1 §3 |
+| 调用 | 请求-应答，携带关联标识与截止时间 | v3.1 §3 · §9 |
+
+插件之间的依赖仅经由上述操作。协议不要求插件具有统一的实现形态：进程内模块、
+独立进程、worker、远程服务、设备，均为合法的 Plugin（v3.0 §5.2）。
+
+参考实现将这五个操作封装为 [`@eapp/runtime`](packages/runtime/src/runtime.ts)。
+该包不定义语义，其每个操作均可追溯到 v3.0 / v3.1 / v3.2 中的条款。
 
 ---
 
-## 三层
+## 2. 三层
 
 ```
 Composition Core   (v3.0)   谁和谁组合          Identity · Capability · Plugin · Binding · Lifecycle · Discovery
@@ -28,134 +42,142 @@ Interaction Layer  (v3.1)   组合后如何互动      Channel · Subscription �
 State Mode         (v3.2)   如何共享状态        StateCell · Revision · StateUpdate · StateWatcher · CAS
         │
         ▼
-Transport                   消息物理上怎么走     Memory（进程内） · Socket（跨进程）
+Transport                   消息如何传输         Memory（进程内） · Socket（跨进程）
 ```
 
-五个动作：**发现 · 连接 · 激活 · 通信 · 调用**。
+版本号标识引入该部分的协议版本，而非该层自身的版本。`eappVersion: "3.2.0"`
+指协议版本。各层独立冻结，冻结文本一经发布不兼容变更须进入 4.0（v3.0 §18）。
 
 ---
 
-## 状态
+## 3. 实现状态
 
 | 层 | 规范 | TypeScript 参考实现 | Go 独立实现 |
 |---|---|---|---|
-| v3.0.0-core | ✅ FROZEN | ✅ | ✅ |
-| v3.1.0-interaction | ✅ FROZEN | ✅ | — |
-| v3.2.0-state | ✅ FROZEN | ✅ | — |
+| v3.0.0-core | FROZEN | 完整 | 完整 |
+| v3.1.0-interaction | FROZEN | 完整 | 未实现 |
+| v3.2.0-state | FROZEN | 完整 | 未实现 |
 
 ```
-不变量覆盖   209 / 209          冻结闸门 PASS
-测试         199 passed         typecheck clean   doc links resolve
-语言中立检查  33 checks × 2 实现   （Go 的 Composition Core 与 TypeScript 参考实现）
-示例         5 个，全部自检
-标签         v3.2.0
+不变量           210 / 210         冻结闸门 PASS
+一致性测试        200 passed
+跨实现一致性      33 项检查 × 2 份实现
+示例             5 个，均自检
 ```
 
 ---
 
-## 文档
+## 4. 文档
 
-| | |
+按阅读目的索引：
+
+| 目的 | 文档 |
 |---|---|
-| **[文档总索引](docs/README.md)** | 全部内容的入口 |
-| [概念：三层心智模型](docs/guides/concepts.md) | 先读这个 |
-| [快速上手](docs/guides/getting-started.md) | 跑起来 |
-| [写一个插件](docs/guides/write-a-plugin.md) | 从零写一个可组合的插件 |
-| [实现一个 Transport](docs/guides/write-a-transport.md) | 换一种传输 |
-| [用另一种语言实现 EaPP](docs/guides/implement-in-another-language.md) | 移植这份协议 |
-| [一致性 harness](conformance/README.md) | 用外部工具检查任何一个实现 |
-| [参考](docs/README.md#参考) | 每个实体一页 |
-| [规范](docs/spec/v3.0.0-core.md) | **规范性文本，唯一裁决者** |
-| [一致性报告](docs/CONFORMANCE.md) | 声明了什么、没声明什么 |
+| 理解协议结构 | [概念：三层心智模型](docs/guides/concepts.md) |
+| 运行参考实现 | [快速上手](docs/guides/getting-started.md) |
+| 编写插件 | [编写插件](docs/guides/write-a-plugin.md) |
+| 实现 Transport | [实现 Transport](docs/guides/write-a-transport.md) |
+| 以其他语言实现协议 | [跨语言实现](docs/guides/implement-in-another-language.md) |
+| 验证一个实现 | [一致性 harness](conformance/README.md) |
+| 查阅实体语义 | [参考索引](docs/README.md#参考) |
+| 阅读规范性文本 | [规范](docs/spec/v3.0.0-core.md) |
+| 查阅合规范围 | [一致性报告](docs/CONFORMANCE.md) |
 
-> `docs/spec/` 是**规范性**的；参考页与指南解释它。
-> 两者冲突时**以规范为准**。
-
----
-
-## 仓库结构
-
-```
-docs/
-├── spec/          规范性 —— 冻结的协议文本
-├── reference/     非规范性 —— 每实体一页
-├── guides/        非规范性 —— 教程与操作指南
-├── analysis/      非规范性 —— 缺陷分析与评审记录
-└── CONFORMANCE.md 一致性声明与已登记的偏离
-
-packages/              TypeScript 参考实现（一份证据，不是协议本身）
-├── core/                v3.0 Composition Core
-├── interaction/         v3.1 Interaction Layer
-├── state/               v3.2 State Mode
-├── transport/memory/    进程内 Transport
-├── transport/socket/    跨进程 Transport（broker + 客户端）
-└── runtime/             五个动作的门面（不是第四层）
-
-implementations/go/    从规范独立实现的 Composition Core（第二份证据）
-conformance/           语言中立的 driver 协议与 harness
-tests/conformance/     与 docs/spec 一一对应的不变量测试
-tools/                 冻结闸门 + 文档链接闸门
-examples/              5 个可运行且自检的示例
-```
+`docs/spec/` 为规范性文本，是唯一裁决者。参考页与指南均为其解释，
+与规范冲突时以规范为准。
 
 ---
 
-## 三道闸门
+## 5. 如何验证一个实现
 
-**冻结闸门** —— v3.0 §19.2 是一条冻结条款：*每个不变量 MUST 至少有一个对应的测试用例。*
+三道闸门，分别对应三个不同的问题。
+
+**规范声明的不变量是否都有测试。** v3.0 §19.2 要求每条不变量至少对应一个测试用例。
 
 ```bash
 pnpm run check:invariants
 ```
 
-从每份规范的「不变量（冻结全集）」小节提取声明的 ID，与一致性测试中出现的 ID 求集合差。
-**差集非空、或存在空测试体，即失败。** 在规范里写下一个新不变量，等于同时承诺一个测试。
+该命令从各规范的「不变量（冻结全集）」小节提取标识符，与一致性测试中出现的标识符
+求集合差；差集非空、存在空测试体、或存在仅在汇总表中列出而正文未陈述的标识符，均判定失败。
 
-**文档闸门** —— 参考页交叉引用密集，Markdown 不会告诉你链错了。
+**文档的交叉引用是否有效。**
 
 ```bash
 pnpm run check:docs
 ```
 
-**跨实现一致性** —— 前两道闸门检查的都是**这一个**仓库。第三道把实现放进黑盒：
+**实现的行为是否符合协议。** 前两道闸门检查本仓库内部；第三道将实现视为黑盒：
 
 ```bash
 pnpm run conformance:external
 ```
 
-它按 [driver 协议](conformance/driver.md) 拉起一个可执行文件，只看它的 JSON 回答。
-harness 不 import 任何 `@eapp/*`，所以它检查的是协议的表面行为，而不是参考实现的内部。
-**两套独立实现跑同一批检查** —— 这件事本身在检查 harness 是否公平。
+该命令按 [driver 协议](conformance/driver.md) 启动一个可执行文件，仅依据其 JSON 响应判定。
+harness 不引用任何 `@eapp/*`，因此其检查对象是协议的表面行为，而非参考实现的内部结构。
+仓库内两份互相独立的实现均运行同一批检查，用于验证 harness 本身的判定标准。
 
 ---
 
-## 开发
+## 6. 仓库结构
 
-```bash
-pnpm run typecheck              tsc --noEmit（strict + exactOptionalPropertyTypes）
-pnpm test                       vitest（直接跑源码）
-pnpm run check:invariants       冻结闸门
-pnpm run check:docs             文档链接闸门
-pnpm run conformance:external   跨实现一致性（Go + TypeScript），verify 的最后一段
-pnpm run examples               5 个示例，各自自检
-pnpm run verify                 以上全部
-pnpm run demo                   端到端演示
+```
+docs/
+├── spec/          规范性：冻结的协议文本
+├── reference/     非规范性：实体参考，每实体一页
+├── guides/        非规范性：教程与操作指南
+├── analysis/      非规范性：设计评审记录
+└── CONFORMANCE.md 一致性声明与已登记的偏离
+
+packages/                     TypeScript 参考实现
+├── core/                       v3.0 Composition Core
+├── interaction/                v3.1 Interaction Layer
+├── state/                      v3.2 State Mode
+├── transport/memory/           进程内 Transport
+├── transport/socket/           跨进程 Transport
+└── runtime/                    五个操作的门面
+
+implementations/go/           独立的 Composition Core 实现
+conformance/                  语言中立的 driver 协议与 harness
+tests/conformance/            与 docs/spec 对应的不变量测试
+tools/                        冻结闸门与文档链接闸门
+examples/                     5 个可运行示例，各自包含断言
 ```
 
-Node ≥ 20 · pnpm 10 · TypeScript 7 · vitest 5 · Go 1.24+（`verify` 最后一段要跑它）。
+---
+
+## 7. 开发
+
+```bash
+pnpm install
+pnpm run verify
+```
+
+`pnpm run verify` 包含六段：类型检查、一致性套件、示例、冻结闸门、文档链接闸门、
+跨实现一致性。任一段失败即中断后续段。
+
+```bash
+pnpm run typecheck              tsc --noEmit，strict + exactOptionalPropertyTypes
+pnpm test                       vitest，直接运行源码
+pnpm run examples               5 个示例，各自校验结论
+pnpm run check:invariants       冻结闸门
+pnpm run check:docs             文档链接闸门
+pnpm run conformance:external   跨实现一致性
+```
+
+工具链：Node ≥ 20 · pnpm 10 · TypeScript 7 · vitest 5 · Go 1.24+（供第六段使用）。
 
 ---
 
-## 参与
+## 8. 参与
 
-先读 [贡献指南](CONTRIBUTING.md) 与 [治理](GOVERNANCE.md)。
+参见[贡献指南](CONTRIBUTING.md)与[治理](GOVERNANCE.md)。
 
-一句话版本：**规范是产品，实现只是它的证据 —— 而证据至少要两份，
-一份是同一个作者写的就不算数。**
-改一处语义的成本比改十处实现高得多，所以规范变更比代码变更受到更严格的约束。
+规范是本项目的主要交付物，实现为其证据。修改一处语义的成本高于修改多处实现，
+因此规范变更所受约束严于代码变更。
 
 ---
 
-## 许可
+## 9. 许可
 
 [MIT](LICENSE)
