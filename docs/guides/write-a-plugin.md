@@ -362,7 +362,7 @@ async activate(plugin: PluginRef): Promise<void> {
 
 ## 6. 注册 → 发现 → 连接 → 激活 → 调用
 
-五个动作对应五个方法，前四个方法的归属层不同：
+五个操作对应五个方法，前四个方法的归属层不同：
 
 | 动作 | 调用 | 层 |
 |---|---|---|
@@ -639,7 +639,7 @@ Binding 状态 = 派生     handler 抛 EappError → 调用方看到同一个 c
 ## 相关
 
 - [概念：三层心智模型](./concepts.md) —— 层与层的分工
-- [快速上手](./getting-started.md) —— 演示里这五个动作长什么样
+- [快速上手](./getting-started.md) —— 演示中这五个操作的形态
 - [实现一个 Transport](./write-a-transport.md) —— 换掉消息怎么走
 - [`Plugin`](../reference/plugin.md) · [`Identity`](../reference/identity.md) ·
   [`Capability`](../reference/capability.md) · [`Binding`](../reference/binding.md) ·

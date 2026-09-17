@@ -268,8 +268,8 @@ and sharing versioned state — each one unaware of the others.
 | 6. Shared state | v3.2 State Mode（CAS + StateWatcher） |
 | 7. Lifecycle | v3.0 Lifecycle **+** v3.1 的派生联动 |
 
-`@eapp/runtime` 只是把这五个动作拼起来的门面，**它不是第四层**：
-上面每一行都能在 v3.0 / v3.1 / v3.2 里找到出处。
+`@eapp/runtime` 将这五个操作封装为一个门面，不构成第四层：
+上面每一行都能在 v3.0 / v3.1 / v3.2 中找到出处。
 
 ---
 
