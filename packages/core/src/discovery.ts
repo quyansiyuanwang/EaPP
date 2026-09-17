@@ -216,9 +216,25 @@ export class DiscoveryService implements Discovery {
   constructor(registry: PluginRegistry, policy?: DiscoveryTrustPolicy) {
     this.registry = registry;
     this.policy = policy ?? {};
-    // D-4 invalidation policy: any registry mutation invalidates cached results.
-    this.unsubscribeRegistry = registry.onChange(() => {
+    this.unsubscribeRegistry = registry.onChange((event) => {
+      // D-4 invalidation policy: any registry mutation invalidates cached results.
       this.invalidate();
+
+      // §8.1 defines `watch` as an operation that yields DiscoveryEvents, so
+      // something has to produce them. The mapping is the obvious one: a plugin
+      // appearing is `added`; anything else about an existing one is `changed`.
+      // (The registry has no unregister, so `removed` has no source here — the
+      // type exists for implementations that can remove, and `notify` accepts it.)
+      //
+      // This used to be missing. `notify()` was implemented, validated and tested,
+      // and never called by anything: a caller had to already know a plugin had
+      // changed in order to be told that a plugin had changed. The test passed
+      // because it called `notify` by hand, which is exactly the kind of coverage
+      // that satisfies a gate while the feature does nothing.
+      this.notify({
+        type: event.type === 'registered' ? 'added' : 'changed',
+        plugin: event.plugin,
+      });
     });
   }
 
@@ -289,7 +305,14 @@ export class DiscoveryService implements Discovery {
     return iterable;
   }
 
-  /** D-6: only added | removed | changed are valid; anything else is rejected. */
+  /**
+   * D-6: only added | removed | changed are valid; anything else is rejected.
+   *
+   * Called automatically when the plugin registry changes, which is how `watch`
+   * gets anything to yield. It stays public because a Discovery may also be fed by
+   * a source the registry does not know about — a federated or remote one — and
+   * that is a legitimate producer rather than a back door.
+   */
   notify(event: DiscoveryEvent): void {
     const source: unknown = event;
     if (typeof source !== 'object' || source === null) {

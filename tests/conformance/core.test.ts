@@ -527,6 +527,59 @@ describe('D: Discovery', () => {
     expect(['added', 'removed', 'changed']).toContain(first?.value?.type); // D-6
   });
 
+  /**
+   * The above test calls `notify()` itself, so it proves the event plumbing works
+   * and nothing more — it would pass even if nothing in the implementation ever
+   * produced an event, which is exactly what was true.
+   *
+   * §8.1 defines `watch` as an operation of Discovery that yields events. A caller
+   * who has to call `notify()` in order to be told a plugin changed already knew
+   * about the change. So this test never touches `notify`: it registers a plugin
+   * and expects to be told.
+   */
+  test('D-6: watch fires on its own when the registry changes', async () => {
+    const { discovery, registry } = scoped();
+    const watch = discovery.watch({}, { trustLevel: 'L0', trustDomain: 'com.example' });
+    const iterator = watch[Symbol.asyncIterator]();
+
+    const pending = iterator.next();
+    // Only the registry is touched. Nothing calls `notify`.
+    registry.register(pluginOf('appears', []));
+
+    const first = await Promise.race([
+      pending,
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 1000)),
+    ]);
+    watch.close();
+
+    expect(first).toBeDefined();
+    expect(first?.value?.type).toBe('added');
+    expect(first?.value?.plugin.id).toBe('appears');
+  });
+
+  test('D-6: a lifecycle change on an existing plugin is reported as `changed`', async () => {
+    const { discovery, registry } = scoped();
+    // Registered BEFORE the watch, so the `added` event for it is not what the watch
+    // sees first. The plugin object is kept rather than rebuilt: `identityOf` mints a
+    // fresh instance on every call, so `identityOf('changer')` twice is two plugins.
+    const plugin = pluginOf('changer', []);
+    registry.register(plugin);
+
+    const watch = discovery.watch({}, { trustLevel: 'L0', trustDomain: 'com.example' });
+    const iterator = watch[Symbol.asyncIterator]();
+    const pending = iterator.next();
+    registry.setLifecycle(plugin.identity, 'ACTIVE');
+
+    const first = await Promise.race([
+      pending,
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 1000)),
+    ]);
+    watch.close();
+
+    expect(first?.value?.type).toBe('changed');
+    expect(first?.value?.plugin.id).toBe('changer');
+  });
+
   test('D-4: discovery may cache, but only with an invalidation policy', async () => {
     const { discovery, registry } = scoped();
     await discovery.find({}, { trustLevel: 'L0', trustDomain: 'com.example' });
