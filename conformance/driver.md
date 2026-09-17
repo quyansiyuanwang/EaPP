@@ -12,7 +12,8 @@ v3.0 §19.3 说实现声称合规时 MUST 声明：
 ```typescript
 interface ConformanceClaim {
   eappVersion: string;
-  levels: (...)[];
+  levels: ('C1' | 'C2' | 'C3' | 'C4' | 'C5' | 'C6' | 'C7' | 'C8'
+         | 'I1' | 'I2' | 'I3' | 'I4' | 'I5' | 'I6' | 'I7')[];
   testSuite: string;
   passed: number;
   total: number;

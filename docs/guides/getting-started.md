@@ -38,7 +38,7 @@ CI 使用 `pnpm install --frozen-lockfile`；本地要复现 CI 的行为时用�
 pnpm run verify
 ```
 
-它是六段串联（`package.json` 的 `verify` 脚本），**任何一段失败都会中断后面的段**：
+它依次执行以下各段（`package.json` 的 `verify` 脚本），**任何一段失败都会中断后面的段**：
 
 | 段 | 命令 | 这一段在验证什么 |
 |---|---|---|
@@ -46,8 +46,9 @@ pnpm run verify
 | ② 一致性套件 | `pnpm run test` | `vitest run`。按规范分层组织（core / interaction / state / socket / runtime 端到端） |
 | ③ 示例 | `pnpm run examples` | [示例](../../examples/README.md)真的跑得起来，且各自的自检全部成立 |
 | ④ 冻结闸门 | `pnpm run check:invariants` | v3.0 §19.2 的冻结义务：**每个不变量 MUST 至少有一个对应的测试用例** |
-| ⑤ 文档链接闸门 | `pnpm run check:docs` | 相对链接是否都能落到真实文件；只查相对链接，不联网 |
-| ⑥ 跨实现一致性 | `pnpm run conformance:external` | 用**不 import 任何 `@eapp/*`** 的 harness，按 [driver 协议](../../conformance/driver.md) 黑盒检查两套独立实现 |
+| ⑤ 文档闸门 | `pnpm run check:docs` | 相对链接是否都能落到真实文件；正文语域；参考页结构 |
+| ⑥ 副本闸门 | `pnpm run check:duplicates` | 同一类型在多处被复述时，各处的**成员类型是否一致** |
+| ⑦ 跨实现一致性 | `pnpm run conformance:external` | 用**不 import 任何 `@eapp/*`** 的 harness，按 [driver 协议](../../conformance/driver.md) 黑盒检查两套独立实现 |
 
 具体条数以命令输出为准 —— 文档里的数字会过期，闸门不会。
 写这份文档时是 200 条测试、210 条不变量、462 条链接、33 条跨实现检查 × 2 套实现。

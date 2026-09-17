@@ -154,8 +154,8 @@ pnpm install
 pnpm run verify
 ```
 
-`pnpm run verify` 包含六段：类型检查、一致性套件、示例、冻结闸门、文档链接闸门、
-跨实现一致性。任一段失败即中断后续段。
+`pnpm run verify` 依次执行 `package.json` 中列出的各段：类型检查、一致性套件、示例、
+冻结闸门、文档闸门、副本闸门、跨实现一致性。任一段失败即中断后续段。
 
 ```bash
 pnpm run typecheck              tsc --noEmit，strict + exactOptionalPropertyTypes
