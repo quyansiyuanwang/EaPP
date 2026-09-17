@@ -2,7 +2,7 @@
 
 **日期**：见 `git log -1 --format=%cI`
 **规范基线**：v3.0.0-core FROZEN / v3.1.0-interaction FROZEN / v3.2.0-state FROZEN
-**实现**：`eapp@3.2.0-r3`（TypeScript 参考实现）· `eapp-go`（Go 独立实现，Composition Core）
+**实现**：`eapp@3.3.0`（TypeScript 参考实现）· `eapp-go`（Go 独立实现，Composition Core + Interaction）
 
 ---
 
@@ -13,15 +13,19 @@
 
 所以仓库里有**两份独立实现**，以及一个**不属于任何一方**的检查工具：
 
-| | 是什么 | 由谁检查 |
+| | 是什么 | 被谁检查 |
 |---|---|---|
-| `packages/` | TypeScript 参考实现，三层完整 | `tests/conformance/`（同一作者写的单元测试） |
-| `implementations/go/` | Go 独立实现，只做 Composition Core | 无 —— 它就是被检查的对象 |
-| `conformance/` | 语言中立的 driver 协议 + harness | 不检查任何实现，只按协议问问题 |
+| `packages/` | TypeScript 参考实现，三层完整 | `tests/conformance/`（同一作者写的单元测试），以及经由 `conformance/drivers/reference.ts` 适配器被黑盒 harness 检查 |
+| `implementations/go/` | Go 独立实现，覆盖 Composition Core 与 Interaction Layer | 黑盒 harness。**它没有自己的单元测试来充当证据** —— 那是刻意的，见下 |
+| `conformance/` | 语言中立的 driver 协议 + harness | 它本身是检查者。它的公平性由"两份独立实现过同一批检查"来证明 |
 
 Go 那份是**从规范正文写出来的**：写它的人被明确禁止阅读 TypeScript 实现。
 这不是流程洁癖 —— 一旦可以互相参考，两套实现就会在同一个地方一起错，
 而那正是"两份证据"要排除的情况。
+
+它也有自己的 `go test`，但那些测试**不构成本节所说的证据**：作者写测试时脑子里
+是同一份规范，测试与实现出自同一支笔。证据是 harness 那一侧 ——
+它不引用任何 `@eapp/*`，只按 `driver 协议` 提问，两套实现回答同一批问题。
 
 ```bash
 pnpm run conformance:external     # 语言中立的 harness，按层运行
@@ -40,15 +44,21 @@ pnpm run conformance:external     # 语言中立的 harness，按层运行
 {
   "eappVersion": "3.3.0",
   "levels": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "I1", "I2", "I3", "I4", "I5", "I6", "I7"],
-  "testSuite": "conformance@3.2.0-r3",
+  "testSuite": "conformance@3.3.0",
   "passed": 210,
   "total": 210
 }
 ```
 
-这份声明是**参考实现**的。Go 实现只做 Composition Core，所以它的声明会小得多 ——
-level 只到 `C1`–`C3`，`passed` / `total` 只算 v3.0 那一层的 40 条可外部检查的不变量。
+这份声明是**参考实现**的。Go 实现覆盖 Composition Core 与 Interaction Layer、
+不覆盖 State Mode，因此它声明的 `levels` 不含任何 v3.2 的内容。
 **不做的事不声明**，见 §6。
+
+两个实现**声明相同的 `levels` 并不意味着实现了同一批东西** ——
+`levels` 说明的是"哪些层被声明了"，不是"覆盖了多少条不变量"。
+后者由 `passed` / `total` 表达，而它统计的是**不变量覆盖**，不是测试条数。
+harness 报告的是另一个量：它在各层跑了多少条检查、通过了多少
+（见 `conformance/README.md`）。三者不是同一个数字，混用会让"合规"变成一个含糊的词。
 
 `levels` 只列规范定义过的等级：v3.0 §15 定义 `C1`–`C8`，v3.1 §15 定义 `I1`–`I7`。
 v3.2 没有定义独立的等级前缀（它的 §14 是不变量分组，不是等级）。本轮更正了两处：
