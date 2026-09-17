@@ -67,7 +67,9 @@ function isIdentifierList(value: string, rejectLeadingZeros: boolean): boolean {
 
 /**
  * C-2: `major.minor.patch`, optionally followed by `-prerelease` and/or `+build`.
- * Range matching is deliberately out of scope for the Composition Core.
+ *
+ * A Capability's own `version` is always an exact version, never a range. Ranges appear
+ * only in `Criteria.version` (v3.0 §8.1), and they are handled by `semver.ts`.
  */
 export function isValidSemVer(version: string): boolean {
   if (typeof version !== 'string' || version.length === 0) {

@@ -30,7 +30,7 @@ import { MemoryTransport } from '@eapp/transport-memory';
 /**
  * EaPP v3.1.0 Interaction Layer conformance.
  *
- * Every invariant declared in `docs/spec/v3.1.0-interaction.md` §13 is named below.
+ * Every invariant declared in `docs/spec/v3.1.0-interaction.md` §14 is named below.
  */
 
 const OWNER: Identity = { domain: 'e2e', id: 'owner', instance: 'owner-1' };
@@ -127,7 +127,7 @@ describe('CH: Channel', () => {
     );
   });
 
-  test('CC-2 / §8.2: a Channel follows its Binding through DORMANT and back', async () => {
+  test('CC-2 / §2.4: a Channel follows its Binding through DORMANT and back', async () => {
     const transport = makeTransport();
     const bindings = fakeBindings();
     const interaction = new InteractionLayerImpl({ transport, bindings: bindings.source });
@@ -380,7 +380,7 @@ describe('AK: ack and nack', () => {
     await expect(context.nack()).rejects.toThrow('EAPP_LEASE_CLOSED');
   });
 
-  test('SUB-8 distinguishes subscription shutdown from termination', async () => {
+  test('SUB-8: distinguishes subscription shutdown from termination', async () => {
     const { ch } = await makeStateChannel();
     const watcher = await ch.watch({ all: true }, { cursor: 'earliest' });
     const seen = drain(watcher);

@@ -15,8 +15,9 @@
     "test:watch": "vitest",
     "test:conformance": "vitest run tests/conformance",
     "check:invariants": "node tools/check-invariants.mjs",
+    "check:docs": "node tools/check-docs.mjs",
     "demo": "tsx examples/hello-plugins/index.ts",
-    "verify": "pnpm run typecheck && pnpm run test && pnpm run check:invariants"
+    "verify": "pnpm run typecheck && pnpm run test && pnpm run check:invariants && pnpm run check:docs"
   },
   "devDependencies": {
     "@types/node": "^22.20.3",

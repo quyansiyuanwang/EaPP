@@ -13,10 +13,10 @@
 ```json
 {
   "eappVersion": "3.2.0",
-  "levels": ["C1", "C2", "C3", "C4", "C5", "C6", "C8", "I1", "I2", "I3", "I4", "I5", "I6", "S1"],
+  "levels": ["C1", "C2", "C3", "C4", "C5", "C6", "C8", "I1", "I2", "I3", "I4", "I5", "I6", "I7", "S1"],
   "testSuite": "conformance@3.2.0-r3",
-  "passed": 200,
-  "total": 200
+  "passed": 208,
+  "total": 208
 }
 ```
 
@@ -25,9 +25,9 @@
 | 层 | 不变量 | 覆盖 | 测试文件 |
 |---|---|---|---|
 | v3.0.0-core | 50 | **50 / 50** | `tests/conformance/core.test.ts` |
-| v3.1.0-interaction | 66 | **66 / 66** | `tests/conformance/interaction.test.ts` |
+| v3.1.0-interaction | 74 | **74 / 74** | `tests/conformance/interaction.test.ts` |
 | v3.2.0-state | 84 | **84 / 84** | `tests/conformance/state.test.ts` |
-| 合计 | **200** | **200 / 200** | 另加 `runtime.test.ts` 的端到端场景 |
+| 合计 | **208** | **208 / 208** | 另加 `runtime.test.ts` 的端到端场景 |
 
 ---
 
@@ -46,7 +46,7 @@ v3.0 §19.2 的冻结义务——**每个不变量 MUST 至少有一个对应的
 
 ```
 v3.0.0-core          invariant 50/50 covered   gate PASS
-v3.1.0-interaction   invariant 66/66 covered   gate PASS
+v3.1.0-interaction   invariant 74/74 covered   gate PASS
 v3.2.0-state         invariant 84/84 covered   gate PASS
 ```
 
@@ -77,6 +77,7 @@ v3.2.0-state         invariant 84/84 covered   gate PASS
 | I4 Cursor | 可恢复观察 | ✅ SHOULD（承载 stream / state 时升为 MUST） |
 | I5 Transport Capability | 能力声明与检查 | ✅ MAY |
 | I6 Subscription | 独立 cursor 的异步订阅 | ✅ MUST |
+| I7 ConsumerGroup | 命名竞争消费作用域（§8） | ✅ SHOULD |
 
 ### v3.2.0-state
 
@@ -107,7 +108,7 @@ v3.2.0-state         invariant 84/84 covered   gate PASS
 |---|---|---|---|
 | D-1 | `StateChannel.watch()` 返回 `Promise<StateWatcher>` | v3.2 §10.2 原为同步 | r2 同时要求同步返回与"初始 cursor 是具体位置"。解析 `'latest'` 需要异步读 head，同步形式**永远无法满足 r2 自己的 SW-1 断言**。二者不可兼得 |
 | D-2 | 目录布局 `packages/` 而非 `reference/` | v3.0 §19.1 / v3.1 §12.1 | §19.1 用的是 SHOULD；映射关系见 `CHANGELOG.md` |
-| D-3 | `ChannelImpl.connect()` 接受 `DRAINING → ACTIVE` | v3.1 §2.5 状态表未列此转移 | §8.2 要求 Binding 恢复 ACTIVE 时 Channel 回到 ACTIVE。若 DRAINING 不可恢复，该要求无法满足 |
+| D-3 | ~~`ChannelImpl.connect()` 接受 `DRAINING → ACTIVE`~~ **已收回** | v3.1 §2.2 状态表 | 原判为偏离，因为草案的转移表没有这条边。但该转移是 CC-2 的必然要求（Binding 恢复 ACTIVE ⇒ Channel 回到 ACTIVE）。**规范已补全 §2.2 与 §2.4，实现现在是合规的，不再是偏离** |
 | D-4 | `EappError.message` 前缀包含 `code` | v3.0/v3.1/v3.2 三份错误模型 | 三份规范自己的测试骨架都写作 `rejects.toThrow('EAPP_...')`，而匹配串针对 `message`。不含 code 则规范形状的断言全部落空 |
 
 ---
@@ -121,6 +122,9 @@ v3.2.0-state         invariant 84/84 covered   gate PASS
 | CRDT | v3.2 §12.4 已裁定其 `supportsStateRevision = false`，属于 Extension |
 | 日志压缩 | 能力声明里有 `stateRetention`，但内存实现是 `unbounded`，`EAPP_CURSOR_TOO_OLD` 无产生点 |
 | Trust Domain 权限 | v3.0 §8.2 只冻结了 trust level 的分类语义，未冻结授权 |
+| **TR-4 部分未落实** | `assertCapability()` 只接受 `'cursor'` / `'lease'`；创建 `at-least-once` Channel 时**没有任何代码去检查** `capabilities.delivery.atLeastOnce`。`persistent` / `ordering` / `durabilityBoundary` 同样只被类型检查，没有被守卫。TR-4 的 MUST 因此只有部分可执行 |
+| **声明但不可达的错误码** | `EAPP_CHANNEL_DRAINING`、`EAPP_CURSOR_INVALID` 在整个 `packages/` 里没有抛出点；`EAPP_CURSOR_TOO_OLD` 只出现在注释中。三者均无测试 |
+| **未消费的导出类型** | `StateDeleteRequest` 从 `@eapp/state` 导出，但 `StateChannel.delete()` 按 v3.2 §10.2 使用位置参数，没有任何消费者 |
 
 ---
 

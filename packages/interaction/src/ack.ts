@@ -1,7 +1,7 @@
 import { EappError } from '@eapp/core';
 
 /**
- * AckContext — EaPP v3.1.0 §8.
+ * AckContext — EaPP v3.1.0 §9.
  *
  * The full context carries BOTH `ack()` and `nack()`. A consumer-facing event type that
  * only exposes `ack()` is not a valid v3.1 AckContext (errata E1-3), which is why the
@@ -9,7 +9,7 @@ import { EappError } from '@eapp/core';
  *
  * Two distinct terminal stories are deliberately separated:
  *
- *   AK-3 / AK-4 (spec §8)   a context resolved as ACKED may not later be NACKED and
+ *   AK-3 / AK-4 (spec §9)   a context resolved as ACKED may not later be NACKED and
  *                           vice versa -> EAPP_LEASE_CLOSED.
  *   SUB-8 / SW-12 (errata)  the owning subscription was closed while this item was still
  *                           unresolved -> both calls are no-ops and MUST NOT throw, so

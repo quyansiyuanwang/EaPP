@@ -16,8 +16,10 @@ import {
   identityKey,
   isLifecycleState,
   isTrustLevel,
+  isValidRange,
   isValidSemVer,
   matchesCriteria,
+  satisfiesRange,
   type Capability,
   type CapabilityRef,
   type Discovery,
@@ -517,6 +519,63 @@ describe('D: Discovery', () => {
 // =============================================================================
 // BR — Bootstrap Runtime
 // =============================================================================
+// =============================================================================
+// §8.1 — Criteria.version is a SemVer range
+// =============================================================================
+describe('§8.1: Criteria.version is a range, not an exact value', () => {
+  test('find honours caret, tilde, comparator and exact ranges', async () => {
+    const registry = new PluginRegistry();
+    const v1 = pluginOf('v1', [{ name: 'logging', version: '1.4.0' }]);
+    const v2 = pluginOf('v2', [{ name: 'logging', version: '2.0.0' }]);
+    registry.register(v1);
+    registry.register(v2);
+    const core = createCompositionCore(registry);
+
+    const caret = await core.find({ capability: 'logging', version: '^1.0.0' }, {});
+    expect(caret.map((p) => p.id)).toEqual(['v1']); // would have been [] under exact matching
+
+    const tilde = await core.find({ capability: 'logging', version: '~1.4.0' }, {});
+    expect(tilde.map((p) => p.id)).toEqual(['v1']);
+
+    const both = await core.find({ capability: 'logging', version: '>=1.0.0' }, {});
+    expect(both.map((p) => p.id).sort()).toEqual(['v1', 'v2']);
+
+    const exact = await core.find({ capability: 'logging', version: '2.0.0' }, {});
+    expect(exact.map((p) => p.id)).toEqual(['v2']);
+
+    const any = await core.find({ capability: 'logging', version: '*' }, {});
+    expect(any.map((p) => p.id).sort()).toEqual(['v1', 'v2']);
+
+    const none = await core.find({ capability: 'logging', version: '^3.0.0' }, {});
+    expect(none).toEqual([]);
+  });
+
+  test('the supported grammar is explicit, and other syntax is rejected', () => {
+    for (const range of ['', '*', '1.2.3', '^1.2.3', '~1.2.3', '>=1.0.0 <2.0.0', '^1.0.0 || ^2.0.0']) {
+      expect(isValidRange(range)).toBe(true);
+    }
+    // Rejected rather than quietly matching nothing — an unsupported range and
+    // "no plugin matches" must not look the same to a caller.
+    for (const range of ['1.2', '1', '1.x', '1.2.3 - 2.0.0', 'not-a-range']) {
+      expect(isValidRange(range)).toBe(false);
+    }
+  });
+
+  test('caret respects the left-most non-zero component', () => {
+    expect(satisfiesRange('1.9.9', '^1.0.0')).toBe(true);
+    expect(satisfiesRange('2.0.0', '^1.0.0')).toBe(false);
+    expect(satisfiesRange('0.2.9', '^0.2.3')).toBe(true);
+    expect(satisfiesRange('0.3.0', '^0.2.3')).toBe(false);
+    expect(satisfiesRange('0.0.3', '^0.0.3')).toBe(true);
+    expect(satisfiesRange('0.0.4', '^0.0.3')).toBe(false);
+  });
+
+  test('a prerelease sorts below the release sharing its core version', () => {
+    expect(satisfiesRange('1.0.0-rc.1', '<1.0.0')).toBe(true);
+    expect(satisfiesRange('1.0.0-rc.1', '>=1.0.0')).toBe(false);
+  });
+});
+
 describe('BR: Bootstrap Runtime', () => {
   /** The minimal §12 contract, implemented here rather than in a package. */
   function bootstrap(): BootstrapRuntime {

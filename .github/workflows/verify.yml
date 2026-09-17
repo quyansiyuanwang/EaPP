@@ -1,0 +1,33 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The project's definition of "green" is exactly one command: `pnpm run verify`.
+# It runs typecheck, the full conformance suite, and the freeze gate — so CI cannot
+# diverge from what a contributor runs locally.
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck, conformance suite and freeze gate
+        run: pnpm run verify
+
+      - name: End-to-end example
+        run: pnpm run demo

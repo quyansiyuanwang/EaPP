@@ -1,0 +1,19 @@
+# Normalise all text to LF in the repository, regardless of contributor platform.
+* text=auto eol=lf
+
+*.ts    text eol=lf
+*.mjs   text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+
+*.png   binary
+*.jpg   binary
+*.pdf   binary
+
+# The rendered docs and the frozen specs are the product; keep them out of
+# language statistics so they do not drown the code.
+docs/**    linguist-documentation
+tmp/**     linguist-documentation
+
+pnpm-lock.yaml  linguist-generated

@@ -1,6 +1,6 @@
 # EaPP 缺口分析 — 基于 v3.2.0 State Mode Freeze Candidate r2
 
-**依据**：`tmp/draft/EaPP v3.2.0 State Mode — Freeze Candidate r2.md`（1739 行）
+**依据**：`git show "9b78d40:tmp/draft/EaPP v3.2.0 State Mode — Freeze Candidate r2.md"`（草案原文）（1739 行）
 **工具链实测**：node v24.11.1 / pnpm 10.33.0 / npm 11.6.2 / git 2.52.0
 **方法**：全文符号索引 + 交叉引用核对 + 参考实现（§14）与规范条文（§3–§13）逐条对撞
 
@@ -33,7 +33,7 @@ v3.2 把"与 v3.1 的接口一致性验证 ✅"当作已满足的冻结条件—
 |---|---|---|
 | `v3.0.0-core` 规范 | ✅ 存在，**真冻结** | §0 L21「本文自发布之日起冻结」 |
 | `v3.1.0-interaction` 规范 | ⚠️ 存在，但是 **DRAFT** | §14 L1128「冻结声明（草案）」；文末 L1176「Draft」 |
-| `v3.2.0-state` 草案 | ✅ 1 份（r2） | `tmp/draft/…r2.md`，51965 字节 / 1739 行 |
+| `v3.2.0-state` 草案 | ✅ 1 份（r2） | `git show "9b78d40:tmp/draft/EaPP v3.2.0 State Mode — Freeze Candidate r2.md"`，51965 字节 / 1739 行 |
 | 源码 | ❌ 0 行 | 无 `packages/` |
 | 测试 | ❌ 0 个 | 无 `tests/` |
 | 构建配置 | ✅ 本轮已补 | `package.json` / `tsconfig.json` / `vitest.config.ts` |
@@ -43,7 +43,7 @@ v3.2 把"与 v3.1 的接口一致性验证 ✅"当作已满足的冻结条件—
 
 > **三份文档的成熟度不对齐**：v3.0 已冻结且不能动，v3.1 是草案可以改，
 > 而 v3.2 在头部把 v3.1 当成已冻结的既定事实，并在其上推导了 40 条规则。
-> v3.0.0 / v3.1.0 两份文档在分析过程中被补入 `tmp/draft/`，
+> v3.0.0 / v3.1.0 两份文档在分析过程中被补入 `9b78d40` 提交中的草案目录，
 > §2 已据此重写（初版曾判定"前置规范不存在"，该判定已作废）。
 > 结论没有变好，只是从"缺失"变成了"存在但互相冲突"——见 §2b。
 
@@ -455,4 +455,4 @@ Step 7  冻结报告      ConformanceClaim（v3.0 §19.3 的冻结接口）+ cha
 
 ---
 
-*本报告由仓库实测生成；所有行号对应 `tmp/draft/EaPP v3.2.0 State Mode — Freeze Candidate r2.md`。*
+*本报告由仓库实测生成；所有行号对应 `git show "9b78d40:tmp/draft/EaPP v3.2.0 State Mode — Freeze Candidate r2.md"`（草案原文）。*

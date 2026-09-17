@@ -34,7 +34,7 @@ export function isAnchorLiteral(value: string): value is 'earliest' | 'latest' {
  * This is correct precisely because transports allocate fixed-width, zero-padded
  * cursors (see `MemoryTransport`): for equal-width digit strings, lexicographic order
  * and numeric order coincide. A transport that allocated e.g. `'1'`, `'2'`, `'10'`
- * would break this, which is why @eapp/transport-memory pads to 20 characters.
+ * would break this, which is why @eapp/transport-memory pads to 16 characters.
  */
 export function compareCursor(a: Cursor, b: Cursor): number {
   if (a === b) return 0;

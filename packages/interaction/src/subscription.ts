@@ -143,7 +143,7 @@ export class TransportSubscription<T> implements Subscription<T> {
   }
 
   /**
-   * §8 / E1-4: an explicit ack of a later position abandons the intermediate unacked
+   * §9 / E1-4: an explicit ack of a later position abandons the intermediate unacked
    * ones — that is what "acknowledged up to here" means. What CR-3 forbids is the
    * *implicit* advance that receiving a message would cause, which never happens here.
    */

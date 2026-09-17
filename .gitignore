@@ -19,6 +19,5 @@ npm-debug.log*
 pnpm-debug.log*
 
 # ---- local scratch ----
-# NOTE: tmp/ is deliberately NOT ignored — tmp/draft/ holds the project's
-# design drafts and is the provenance record for every frozen spec.
+tmp/
 *.tmp

@@ -78,7 +78,7 @@ export class ChannelImpl implements ManagedChannel {
   /**
    * §2.5: OPEN --connect--> ACTIVE.
    *
-   * DRAINING --connect--> ACTIVE is also accepted, because v3.1 §8.2 requires the
+   * DRAINING --connect--> ACTIVE is also accepted, because v3.1 §2.4 requires the
    * re-derivation in both directions: a Binding returning to ACTIVE MUST put its
    * Channels back in service, and a DRAINING channel that could never resume would make
    * that impossible.

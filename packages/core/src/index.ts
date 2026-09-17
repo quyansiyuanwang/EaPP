@@ -33,6 +33,9 @@ export {
 } from './lifecycle.js';
 export type { LifecycleState } from './lifecycle.js';
 
+export { compareVersions, isValidRange, parseVersion, satisfiesRange } from './semver.js';
+export type { ParsedVersion } from './semver.js';
+
 export { PluginRegistry } from './plugin.js';
 export type { Plugin, PluginChangeEvent, PluginRef } from './plugin.js';
 

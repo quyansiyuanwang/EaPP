@@ -1,7 +1,9 @@
 # EaPP — 规范版本索引与变更记录
 
 本文件记录三个冻结层的版本、来源与全部修订。
-`docs/spec/` 下的文档是**规范性**的；`tmp/draft/` 下的文档是**历史草案**，只作为溯源保留。
+`docs/spec/` 下的文档是**规范性**的。
+三份草案原文**不在工作树中**，保留在提交 `9b78d40` 里 —— 引用它们的形式是
+`git show "9b78d40:tmp/draft/<文件名>"`。
 
 ---
 
@@ -9,9 +11,9 @@
 
 | 版本 | 文档 | 状态 | 来源 |
 |---|---|---|---|
-| **v3.0.0-core** | `docs/spec/v3.0.0-core.md` | FROZEN | `tmp/draft/EaPP v3.0.0 Composition Core.md` 逐字副本，**未作任何修改** |
-| **v3.1.0-interaction** | `docs/spec/v3.1.0-interaction.md` | FROZEN | `tmp/draft/EaPP v3.1.0 Interaction Layer.md`（Draft）+ 9 条勘误（本文 §v3.1.0） |
-| **v3.2.0-state** | `docs/spec/v3.2.0-state.md` | FROZEN | `tmp/draft/EaPP v3.2.0 State Mode — Freeze Candidate r2.md` + r3 修订（本文 §v3.2.0） |
+| **v3.0.0-core** | `docs/spec/v3.0.0-core.md` | FROZEN | `git show "9b78d40:tmp/draft/EaPP v3.0.0 Composition Core.md"`（草案原文） 逐字副本，**未作任何修改** |
+| **v3.1.0-interaction** | `docs/spec/v3.1.0-interaction.md` | FROZEN | `git show "9b78d40:tmp/draft/EaPP v3.1.0 Interaction Layer.md"`（草案原文）（Draft）+ 9 条勘误（本文 §v3.1.0） |
+| **v3.2.0-state** | `docs/spec/v3.2.0-state.md` | FROZEN | `git show "9b78d40:tmp/draft/EaPP v3.2.0 State Mode — Freeze Candidate r2.md"`（草案原文） + r3 修订（本文 §v3.2.0） |
 | — | `docs/spec/DECISIONS-v3.2.0-r3.md` | 决议记录 | Final Review 的全部裁定（D-01…D-38、R-0…R-13） |
 | — | `docs/analysis/GAP-ANALYSIS-v3.2.0-r2.md` | 分析记录 | 40 条内部缺陷（F-01…F-39）+ 12 处跨文档冲突（X-1…X-12） |
 

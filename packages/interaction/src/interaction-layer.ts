@@ -108,7 +108,7 @@ export class InteractionLayerImpl implements InteractionLayer {
     this.#bindings = options.bindings;
     this.#nextId = options.nextId ?? (() => `ch-${++channelSeq}`);
 
-    // CH-2 / CC-2 / §8.2: a Channel never outlives its Binding, and it follows the
+    // CH-2 / CC-2 / §2.4 / CC-2: a Channel never outlives its Binding, and it follows the
     // Binding's derived state in both directions.
     //
     //   Binding ACTIVE   -> Channel OPEN or ACTIVE

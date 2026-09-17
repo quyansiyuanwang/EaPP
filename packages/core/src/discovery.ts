@@ -17,6 +17,7 @@ import { EappError } from './errors.js';
 import type { Identity } from './identity.js';
 import { assertValidIdentity } from './identity.js';
 import type { Plugin, PluginRef, PluginRegistry } from './plugin.js';
+import { satisfiesRange } from './semver.js';
 
 export type TrustLevel = 'L0' | 'L1' | 'L2';
 
@@ -123,7 +124,10 @@ export function matchesCriteria(plugin: Plugin, criteria: Criteria): boolean {
     if (name !== undefined && capability.name !== name) {
       return false;
     }
-    if (version !== undefined && version !== '*' && capability.version !== version) {
+    // §8.1 declares `Criteria.version` a SemVer RANGE, not an exact value. Treating it as
+    // exact made `find({ version: '^1.0.0' })` silently return nothing, which is
+    // indistinguishable from "no plugin matches".
+    if (version !== undefined && !satisfiesRange(capability.version, version)) {
       return false;
     }
     const declared = capability.constraints ?? [];

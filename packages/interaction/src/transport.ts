@@ -2,7 +2,7 @@ import { EappError } from '@eapp/core';
 import type { Cursor, CursorAnchor } from './cursor.js';
 
 /**
- * Transport — EaPP v3.1.0 §9.
+ * Transport — EaPP v3.1.0 §10.
  *
  * A Transport moves bytes and allocates cursors. It MUST NOT define interaction
  * semantics (TR-1): no modes, no delivery guarantees, no lease or cursor policy.
