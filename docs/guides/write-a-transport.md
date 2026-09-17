@@ -794,9 +794,49 @@ TS-5  A Transport MUST NOT declare stateConsistency = 'strong'
 跨进程必须按 `'eventual'` 处理。
 
 参考实现是 `process` + `strong`，这个组合是自洽的：它的强一致**恰好**只覆盖一个进程。
-一个 Redis Streams / NATS JetStream 形态的实现是 `cluster` + `strong`，也自洽。
 一个有本地缓存、跨节点只做最终同步的实现必须是 `cluster` + `eventual`，
 并且**因此**不能做 CAS（见下一节）。
+
+---
+
+## 7.1 真的跨进程：一个可运行的例子
+
+上面每一节都还在一个进程里。跨过去之后有几件事会变，而且是**静默地**变 ——
+这是本仓库里第二个 Transport（`@eapp/transport-socket`）存在的原因。
+
+```bash
+pnpm run example:cross-process
+```
+
+它拉起三个真进程（`examples/cross-process/`）：一个 broker 进程持有日志，
+两个 worker 进程各自跑一个完整运行时。四条设计结论：
+
+**① 位置必须由一方独占分配。** 两个进程各自发号，得到的不是 cursor，是巧合：
+两边都会发出"位置 5"，而 `readAfter` 会因此返回无意义的结果。
+broker 独占分配，其余进程问它要位置。这也是客户端必须**采用** broker 的 id 的原因 ——
+cursor 带着它作前缀，`compareRevision` 才可能在近端同步完成。
+
+**② Channel 的 id 必须靠推导，不能靠计数。** Channel 的 id 就是消息存放的 key，
+所以共享一本日志的两个进程必须算出同一个字符串。计数器做不到：每个进程的第一个
+Channel 都会叫 `ch-1`，于是它们各自读着自己那本日志，还都以为在用同一个名字。
+`EappRuntime` 因此接受一个 `channelId` 回调，它的入参里有 Binding ——
+`from` / `to` / capability 是唯一被所有参与者共享的东西，而"Channel 由 Binding 派生"
+本来就是这个意思。
+
+**③ 原子性只能在数据所在的地方完成。** 跨进程的 CAS 不可能靠"两边各读一次再比一下"：
+那是 TOCTOU，而且跨越网络之后窗口大得多。broker 持有状态，检查与写入之间没有 `await`，
+所以 `setStateWithCAS` 仍然是原子的。示例里两个 worker 同时 read-modify-write 同一个
+key，拿 `EAPP_REVISION_CONFLICT` 的一方重读再写 —— 计数器最终与期望值一致，没有丢更新。
+
+**④ 有些东西跨不过去，而且必须先说。** `ConsumerGroup` 的认领表在进程内内存里，
+所以两个进程会各自以为持有同一个位置，同一条消息被处理两次，**而没有任何报错**。
+与其给一个错答案，不如明确拒绝：这类 Transport 上 `openConsumerGroup` 会抛
+`EAPP_UNSUPPORTED`。这不是 Transport 的缺陷，是实现的限制 ——
+认领表没有出过进程，所以它保证不了跨进程的 CG-3。
+
+> **一条给自己的检查。** 写一个跨进程 Transport 时，逐条问："这个决定是**在哪台机器上**
+> 做出的？" 位置分配、Channel 命名、原子性、所有权 —— 每一个都必须只有一个做决定的地方。
+> 找不出那个地方的，就是还没跨过去。
 
 ---
 
@@ -973,9 +1013,9 @@ pnpm run check:invariants # 冻结闸门：每个不变量都至少有一个测�
    不要断言 cursor 的字面值、不要断言 id 的生成顺序。
 ③ 用 pnpm run check:invariants 的输出当移植清单：
    每条不变量都应当能在你的语言里找到至少一个对应用例。
-④ 一致性报告 §6「尚未实现」里只有三项（跨进程 Transport、CRDT、
-   Trust Domain 权限）—— 它们是 Extension，不在声明内。你的实现 MAY 不做，
-   但**不可以假装做了**。
+④ 一致性报告 §6「尚未实现」里的东西不在声明内（CRDT、Trust Domain 权限、
+   以及跨进程的 ConsumerGroup）。你的实现 MAY 不做，但**不可以假装做了** ——
+   尤其在跨进程的情况下：把做不到的那部分做成明确失败，而不是给一个安静的错答案。
 ```
 
 一句话：**规范是唯一的裁决者，一致性套件是它的证据。

@@ -46,12 +46,21 @@ Interaction Layer     Channel / Subscription / ConsumerGroup / Delivery / Lease 
 State Mode            StateCell / Revision / StateUpdate / StateWatcher / CAS
         │
         ▼
-Transport             Memory（本仓库唯一交付的实现）
+Transport             Memory（进程内） · Socket（跨进程）
 ```
 
-Transport 的**接口**是冻结的（v3.1 §10 / v3.2 §11），协议本身与实现无关 ——
-Socket / Redis / NATS 都是**可能的**实现，但本仓库只交付了 Memory 一种
-（`@eapp/transport-memory`），跨进程 Transport 列在[一致性报告](../CONFORMANCE.md) §6 的「尚未实现」里。
+Transport 的**接口**是冻结的（v3.1 §10 / v3.2 §11），协议本身与实现无关。
+本仓库交付了两种，它们之间的差别正好说明"接口稳定、实现自由"是什么意思：
+
+| 实现 | 位置域 | `durabilityBoundary` |
+|---|---|---|
+| `@eapp/transport-memory` | 一个进程 | `'process'` |
+| `@eapp/transport-socket` | 一台机器上的所有进程 | `'machine'` |
+
+同一个 `EappRuntime`、同一批不变量测试、同一套语义，换掉最下面一层即可 ——
+见 [实现一个 Transport §7.1](./write-a-transport.md) 与
+[`examples/cross-process/`](../../examples/cross-process/index.ts)。
+Redis / NATS 形态的实现仍然是**可能的**（接口允许），只是本仓库没有交付。
 
 **下层 MUST NOT 反向定义上层语义。** Transport 只搬字节，它不定义投递保证、
 不定义 Cursor、不定义 Lease —— 那些是 Interaction Layer 的职责。

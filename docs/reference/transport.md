@@ -6,9 +6,17 @@
 |---|---|
 | **层** | v3.1 Interaction Layer |
 | **规范** | [v3.1.0-interaction §10](../spec/v3.1.0-interaction.md) · §11 / §12（Composition 边界，CC-1 … CC-9） |
-| **实现** | [`packages/interaction/src/transport.ts`](../../packages/interaction/src/transport.ts) |
-| **测试** | [`tests/conformance/interaction.test.ts`](../../tests/conformance/interaction.test.ts) |
+| **实现** | 接口：[`packages/interaction/src/transport.ts`](../../packages/interaction/src/transport.ts) |
+| **实现** | [`@eapp/transport-memory`](../../packages/transport/memory/src/memory-transport.ts)（进程内） · [`@eapp/transport-socket`](../../packages/transport/socket/src/socket-transport.ts)（跨进程） |
+| **测试** | [`tests/conformance/interaction.test.ts`](../../tests/conformance/interaction.test.ts) · [`socket.test.ts`](../../tests/conformance/socket.test.ts) |
 | **稳定度** | FROZEN |
+
+两种已交付的实现用来说明"接口稳定、实现自由"：
+
+| 实现 | 位置域 | `durabilityBoundary` | 位置由谁分配 |
+|---|---|---|---|
+| `@eapp/transport-memory` | 一个进程 | `'process'` | 它自己 |
+| `@eapp/transport-socket` | 一台机器的所有进程 | `'machine'` | broker 进程（独占） |
 
 ---
 

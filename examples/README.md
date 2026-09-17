@@ -1,14 +1,15 @@
 # 示例
 
-四个可运行的示例。它们**不是**讲解用的伪代码：每个文件都自己核对结论，
+五个可运行的示例。它们**不是**讲解用的伪代码：每个文件都自己核对结论，
 断言失败就以非 0 退出，所以它们同时是文档的测试。
 
 ```bash
-pnpm run examples        # 四个全跑（pnpm run verify 会跑这一步）
-pnpm run demo            # 只跑 hello-plugins
-pnpm run example:first   # 只跑 my-first-plugin
-pnpm run example:queue   # 只跑 job-queue
+pnpm run examples           # 五个全跑（pnpm run verify 会跑这一步）
+pnpm run demo               # 只跑 hello-plugins
+pnpm run example:first      # 只跑 my-first-plugin
+pnpm run example:queue      # 只跑 job-queue
 pnpm run example:transport  # 只跑 array-transport
+pnpm run example:cross-process  # 只跑 cross-process（会拉起 3 个子进程）
 ```
 
 | 示例 | 在哪里被引用 | 覆盖什么 |
@@ -17,6 +18,7 @@ pnpm run example:transport  # 只跑 array-transport
 | [`my-first-plugin/`](./my-first-plugin/index.ts) | [写一个插件](../docs/guides/write-a-plugin.md) §2 | request 模式一条线走到底：身份从哪来、能力版本算不算身份、错误码怎么浮现 |
 | [`job-queue/`](./job-queue/index.ts) | [写一个插件](../docs/guides/write-a-plugin.md) §8.1 | Interaction Layer 难的那一半：竞争消费、nack 重投、成员离开、多组共存、DRAINING |
 | [`array-transport/`](./array-transport/index.ts) | [实现一个 Transport](../docs/guides/write-a-transport.md) §6 | 替换最下面一层：Transport 契约、位置分配、CAS 的原子性、把自定义 Transport 交给运行时 |
+| [`cross-process/`](./cross-process/index.ts) | [实现一个 Transport](../docs/guides/write-a-transport.md) §7.1 | 真的跨进程：broker 进程 + 两个 worker 进程共享一本日志、跨进程 CAS、以及**跨不过去的那一半** |
 
 ## 为什么示例要自检
 
