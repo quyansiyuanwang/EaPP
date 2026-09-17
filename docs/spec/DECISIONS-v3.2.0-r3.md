@@ -1,8 +1,10 @@
 # EaPP v3.2.0-r3 — Final Review 决议记录
 
-**输入**：`docs/analysis/GAP-ANALYSIS-v3.2.0-r2.md`（F-01 … F-19）
+**输入**：`docs/analysis/GAP-ANALYSIS-v3.2.0-r2.md`（F-01 … F-39 + X-1 … X-12）
 **输出**：v3.2.0 语义冻结所需的全部裁定
-**状态**：提案（待并入 `docs/spec/v3.2.0-state.md`）
+**状态**：已并入 —— D-01…D-38 已写入 `docs/spec/v3.2.0-state.md`，
+R-0…R-13 已写入 `docs/spec/v3.1.0-interaction.md` 与 `docs/spec/CHANGELOG.md`。
+本文保留为**裁定过程的记录**：它解释每条规则为什么是这样，而规范正文只陈述规则是什么。
 
 > 本文只记录**决定**与**理由**，不重复 r2 的原文。
 > 每条决定标注它关闭哪个缺陷。
