@@ -24,5 +24,5 @@ export * from './runtime.js';
  */
 export { EappError, identityKey, isEappError } from '@eapp/core';
 export type { Capability, EappErrorShape, Identity, PluginRef } from '@eapp/core';
-export type { ChannelMode, Subscription } from '@eapp/interaction';
+export type { ChannelMode, ConsumerGroup, ConsumerGroupOptions, Subscription } from '@eapp/interaction';
 export type { StateChannel, StateCell, Revision } from '@eapp/state';

@@ -20,12 +20,17 @@ import {
   isRequestExpired,
   newCorrelationId,
   type ChannelMode,
+  type ConsumerGroup,
+  type ConsumerGroupDeps,
+  type ConsumerGroupOptions,
   type DeliveryGuarantee,
   type ManagedChannel,
+  type Pattern,
   type RequestMessage,
   type ResponseMessage,
   type Subscription,
   type SubscriptionOptions,
+  type SubscriptionSource,
   type TransportMessage,
 } from '@eapp/interaction';
 import { configureStateChannel, type StateChannel, type StateTransport } from '@eapp/state';
@@ -373,24 +378,26 @@ export class EappRuntime {
     return this.transport.send(channel.id, message);
   }
 
-  /** event / stream: observe a channel with a v3.1 Subscription. */
-  async subscribe(
-    channelId: string,
-    pattern: { all: true } | { type: string },
-    options: SubscriptionOptions = {},
-  ): Promise<Subscription<RuntimeMessage>> {
-    this.#assertLive();
-    // Same rule as publish: DRAINING means the composition is paused, so a new consumer
-    // must not attach to it. Resolved through the interaction layer, so a channel the
-    // runtime did not derive itself is still checked.
-    this.interaction.channel(channelId)?.requireActive('subscribe');
+  /**
+   * The one place that knows how to read a Channel as a v3.1 SubscriptionSource.
+   *
+   * Both `subscribe()` and `openConsumerGroup()` need exactly this, and a plugin author
+   * should never have to hand-roll it: building the source is protocol plumbing, not
+   * application logic. Extracting it here is what lets the facade offer competing
+   * consumers at all.
+   */
+  #sourceFor(channelId: string, pattern: Pattern): SubscriptionSource<RuntimeMessage> {
     const transport = this.transport;
-    return TransportSubscription.create<RuntimeMessage>(channelId, options, {
+    return {
       // `resolveAnchor` and `waitForChange` are optional on the v3.1 Transport: a transport
       // that cannot resolve anchors or push notifications simply gets the slower path.
       head: async () =>
         (transport.resolveAnchor ? await transport.resolveAnchor(channelId, 'latest') : '') ?? '',
-      earliest: async () => '',
+      // Asked of the transport rather than hardcoded to the empty sentinel, so a transport
+      // with a retention window reports its floor — and raises EAPP_CURSOR_TOO_OLD when
+      // there is nothing retained to start from, instead of naming a discarded position.
+      earliest: async () =>
+        (transport.resolveAnchor ? await transport.resolveAnchor(channelId, 'earliest') : '') ?? '',
       readAfter: async (cursor, ack) => {
         const messages = await transport.readAfter(channelId, cursor, pattern);
         return messages.map((message) => {
@@ -414,7 +421,76 @@ export class EappRuntime {
               transport.waitForChange?.(channelId, cursor, signal) ?? Promise.resolve(),
           }
         : { pollIntervalMs: DISPATCH_POLL_MS }),
-    });
+    };
+  }
+
+  /** event / stream: observe a channel with a v3.1 Subscription. */
+  async subscribe(
+    channelId: string,
+    pattern: { all: true } | { type: string },
+    options: SubscriptionOptions = {},
+  ): Promise<Subscription<RuntimeMessage>> {
+    this.#assertLive();
+    // Same rule as publish: DRAINING means the composition is paused, so a new consumer
+    // must not attach to it. Resolved through the interaction layer, so a channel the
+    // runtime did not derive itself is still checked.
+    this.interaction.channel(channelId)?.requireActive('subscribe');
+    return TransportSubscription.create<RuntimeMessage>(
+      channelId,
+      options,
+      this.#sourceFor(channelId, pattern),
+    );
+  }
+
+  // ------------------------------------------------------ 竞争消费 ConsumerGroup
+
+  /**
+   * v3.1 §8 and §15 I7: open a competing-consumer scope over a Channel.
+   *
+   * This exists because the facade previously could not express something the layers
+   * could, while `write-a-plugin.md` §8 told plugin authors that exclusivity between
+   * consumers "由 ConsumerGroup + Lease 表达". Offering the rule without the operation
+   * left them two choices, both wrong: assume one consumer per Channel, or reach past the
+   * runtime and hand-build a `SubscriptionSource` — reimplementing protocol plumbing.
+   *
+   * `pattern` filters what the group competes over, exactly as `subscribe()` does.
+   */
+  async openConsumerGroup(
+    channelId: string,
+    options: ConsumerGroupOptions,
+    pattern: Pattern = { all: true },
+    deps: ConsumerGroupDeps = {},
+  ): Promise<ConsumerGroup<RuntimeMessage>> {
+    this.#assertLive();
+    // A DRAINING channel accepts no new consumers, and a group is a consumer. Checked
+    // through the interaction layer so a channel the runtime did not derive is covered too.
+    this.interaction.channel(channelId)?.requireActive('openConsumerGroup');
+    return this.interaction.openConsumerGroup<RuntimeMessage>(
+      channelId,
+      options,
+      this.#sourceFor(channelId, pattern),
+      deps,
+    );
+  }
+
+  /** CG-8: joining MUST name an existing group on the same Channel. */
+  async joinConsumerGroup(
+    channelId: string,
+    name: string,
+  ): Promise<Subscription<RuntimeMessage>> {
+    this.#assertLive();
+    return this.interaction.joinConsumerGroup<RuntimeMessage>(channelId, name);
+  }
+
+  consumerGroup(channelId: string, name: string): ConsumerGroup<RuntimeMessage> | undefined {
+    return this.interaction.consumerGroup(channelId, name) as
+      | ConsumerGroup<RuntimeMessage>
+      | undefined;
+  }
+
+  /** The groups currently open on a Channel. Names are unique within it (CG-1). */
+  listConsumerGroups(channelId: string): ConsumerGroup<RuntimeMessage>[] {
+    return this.interaction.listConsumerGroups(channelId) as ConsumerGroup<RuntimeMessage>[];
   }
 
   /** state: derive a StateChannel over a state-mode Channel (v3.2 §10.1, step ③). */
@@ -623,7 +699,20 @@ export class EappRuntime {
       }
     }
 
-    await this.transport.send(channel.id, response);
+    // A reply that cannot be delivered is dropped, not thrown.
+    //
+    // `shutdown()` aborts the dispatcher and closes the transport while a handler may
+    // still be running: a handler that is sleeping, or waiting on a peer, does not stop
+    // just because we stopped listening. Letting the transport's "closed" error escape
+    // from here turns an ordinary sequence — shut down while something is in flight —
+    // into an unhandled rejection that kills the process. The caller has either already
+    // timed out (RQ-4) or is going away with the runtime, so there is nobody left to hand
+    // the answer to. This is the only reasonable handling of a failed `send` of a response.
+    try {
+      await this.transport.send(channel.id, response);
+    } catch {
+      return;
+    }
   }
 
   // ----------------------------------------------------------------- shutdown
