@@ -3,6 +3,7 @@ import { connect } from 'node:net';
 import { afterEach, describe, expect, test } from 'vitest';
 
 import type { Identity } from '@eapp/core';
+import type { AckContext } from '@eapp/interaction';
 import { configureStateChannel } from '@eapp/state';
 import type { StateTransportCapabilities } from '@eapp/state';
 import {
@@ -364,62 +365,156 @@ describe('socket transport: state mode across the wire', () => {
   });
 
   /**
-   * The limitation this work surfaced, asserted so it stays a known one.
+   * CG-3 across two CONNECTIONS, which is the case that was previously impossible.
    *
-   * `ConsumerGroup` keeps its claims in process-local memory. That is coherent
-   * while one process is the whole audience. Across processes, two members would
-   * each be told they hold the same position — every message delivered twice,
-   * CG-3 violated, and nothing raised. Rather than allow that silently, opening a
-   * group is refused on any transport whose messages outlive this process.
+   * `ConsumerGroup`'s competing state used to be process-local memory, so two
+   * clients on one transport each kept a private claim table: both would be told
+   * they held the same position, every message delivered twice, and nothing raised.
+   * It now lives on the broker, and this is the assertion that it does.
    *
-   * The refusal is about the claim registry, not about sockets: a transport that
-   * also shared the registry would lift it. Testing the refusal is what turns a
-   * silent wrong answer into a loud missing one.
+   * Two `InteractionLayerImpl` instances stand in for two processes; the layers do
+   * not share objects, they share a socket.
    */
-  test('competing consumption is refused across processes rather than silently wrong', async () => {
+  test('competing consumption is exclusive across connections', async () => {
     const { InteractionLayerImpl } = await import('@eapp/interaction');
 
     const server = await broker();
-    const transport = await client(server);
-    const interaction = new InteractionLayerImpl({ transport });
-    const channel = await interaction.createChannel({ binding: 'b1', mode: 'stream' });
+    const t1 = await client(server);
+    const t2 = await client(server);
+    // An explicit id source, so the two sides provably name the same Channel for
+    // the same reason rather than because both counters happened to start at 1.
+    const l1 = new InteractionLayerImpl({ transport: t1, nextId: () => 'orders' });
+    const l2 = new InteractionLayerImpl({ transport: t2, nextId: () => 'orders' });
+
+    const source = (transport: typeof t1) => ({
+      head: () => transport.resolveAnchor('orders', 'latest'),
+      earliest: () => transport.resolveAnchor('orders', 'earliest'),
+      readAfter: async (cursor: string, ack: (cursor: string) => AckContext) => {
+        const messages = await transport.readAfter('orders', cursor, { all: true });
+        return messages.map((message) => {
+          const context = ack(message.cursor);
+          return {
+            cursor: message.cursor,
+            item: {
+              cursor: message.cursor,
+              payload: message.payload as { n: number },
+              ack: () => context.ack(),
+              nack: () => context.nack(),
+            },
+          };
+        });
+      },
+      waitForChange: (cursor: string, signal: AbortSignal) =>
+        transport.waitForChange?.('orders', cursor, signal) ?? Promise.resolve(),
+    });
+
+    const channel1 = await l1.createChannel({ binding: 'b1', mode: 'stream' });
+    const channel2 = await l2.createChannel({ binding: 'b1', mode: 'stream' });
+    await channel1.connect();
+    await channel2.connect();
+    expect(channel1.id).toBe('orders');
+    expect(channel2.id).toBe('orders');
+
+    // Each side opens the group by name. The broker maps both names onto one
+    // store, which is what makes them the same group rather than two.
+    // `prefetch: 1` on both sides. Without it the first member awake claims the
+    // whole visible batch (the default is 16), its peer is left with nothing and
+    // blocks — correct, but it makes for a test that cannot observe competition.
+    // Across processes this knob is the difference between a pool and one worker.
+    const g1 = await l1.openConsumerGroup('orders', { name: 'workers', prefetch: 1 }, source(t1));
+    const g2 = await l2.openConsumerGroup('orders', { name: 'workers', prefetch: 1 }, source(t2));
+    type Delivered = { cursor: string; payload: { n: number }; ack(): Promise<void> };
+    const a = await l1.joinConsumerGroup<Delivered>('orders', 'workers');
+    const b = await l2.joinConsumerGroup<Delivered>('orders', 'workers');
+
+    for (const n of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      await t1.send('orders', { n });
+    }
+
+    // Interleaved pulls, so both members are demonstrably awake and competing.
+    const ia = a[Symbol.asyncIterator]();
+    const ib = b[Symbol.asyncIterator]();
+    const fromA: number[] = [];
+    const fromB: number[] = [];
+    for (let round = 0; round < 4; round += 1) {
+      const first = await ia.next();
+      if (!first.done) {
+        fromA.push(first.value.payload.n);
+        await first.value.ack();
+      }
+      const second = await ib.next();
+      if (!second.done) {
+        fromB.push(second.value.payload.n);
+        await second.value.ack();
+      }
+    }
+
+    const all = [...fromA, ...fromB];
+
+    // Nothing was handed to both: this is CG-3, across a socket.
+    expect(new Set(all).size).toBe(all.length);
+    // ...and nothing was lost between them.
+    expect([...all].sort((x, y) => x - y)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    // Both members actually worked, so this is competition and not one side
+    // taking everything while the other sat idle.
+    expect(fromA.length).toBeGreaterThan(0);
+    expect(fromB.length).toBeGreaterThan(0);
+
+    // The member count comes from the broker, so each side sees both members —
+    // which one process could never have reported.
+    expect(g1.memberCount).toBe(2);
+    expect(g2.memberCount).toBe(2);
+
+    // CG-2 says the group has exactly ONE cursor. §8.2 freezes `cursor` as a
+    // synchronous property, so a member can only report the view it last saw: the
+    // guarantee is that there is one shared position, not that every read of it is
+    // live. Both point into the same log and both have advanced past the start.
+    // Asserting byte-equality here would be asserting something §8.2 cannot promise
+    // across a socket, and the test would be lying about which part is guaranteed.
+    expect(a.cursor.startsWith(`${server.id}!`)).toBe(true);
+    expect(b.cursor.startsWith(`${server.id}!`)).toBe(true);
+
+    await a.close();
+    await b.close();
+    await g1.close();
+    await g2.close();
+  });
+
+  /**
+   * And the refusal still holds where it should: a transport that reaches beyond
+   * one process but supplies no shared store cannot back CG-3, so it is refused
+   * rather than allowed to be silently wrong.
+   */
+  test('a transport that reaches wider than its store is refused', async () => {
+    const { InteractionLayerImpl } = await import('@eapp/interaction');
+    const { MemoryTransport } = await import('@eapp/transport-memory');
+
+    const local = new MemoryTransport('local');
+    const wide = local as unknown as { capabilities: { durabilityBoundary: string } };
+    // 'machine' rather than 'cluster': the latter is incoherent with
+    // `persistent: false` and would be rejected by the coherence check before the
+    // question of a group store is ever reached.
+    wide.capabilities.durabilityBoundary = 'machine';
+
+    const layer = new InteractionLayerImpl({ transport: local });
+    const channel = await layer.createChannel({ binding: 'b1', mode: 'stream' });
     await channel.connect();
 
-    const source = {
-      head: () => transport.resolveAnchor(channel.id, 'latest'),
-      earliest: () => transport.resolveAnchor(channel.id, 'earliest'),
-      readAfter: async () => [],
-      waitForChange: (cursor: string, signal: AbortSignal) =>
-        transport.waitForChange?.(channel.id, cursor, signal) ?? Promise.resolve(),
-    };
-
     await expect(
-      interaction.openConsumerGroup(channel.id, { name: 'workers' }, source),
-    ).rejects.toThrow('EAPP_UNSUPPORTED');
-
-    // The same call on an in-process transport still works — the rule is about
-    // where the claims live, not about which layer asked.
-    const { MemoryTransport } = await import('@eapp/transport-memory');
-    const local = new MemoryTransport('local');
-    const localLayer = new InteractionLayerImpl({ transport: local });
-    const localChannel = await localLayer.createChannel({ binding: 'b2', mode: 'stream' });
-    await localChannel.connect();
-    await expect(
-      localLayer.openConsumerGroup(
-        localChannel.id,
+      layer.openConsumerGroup(
+        channel.id,
         { name: 'workers' },
         {
-          head: () => local.resolveAnchor(localChannel.id, 'latest'),
-          earliest: () => local.resolveAnchor(localChannel.id, 'earliest'),
+          head: () => local.resolveAnchor(channel.id, 'latest'),
+          earliest: () => local.resolveAnchor(channel.id, 'earliest'),
           readAfter: async () => [],
           waitForChange: (cursor: string, signal: AbortSignal) =>
-            local.waitForChange(localChannel.id, cursor, signal),
+            local.waitForChange(channel.id, cursor, signal),
         },
       ),
-    ).resolves.toBeDefined();
+    ).rejects.toThrow('EAPP_UNSUPPORTED');
 
     await local.close();
-    await server.close();
   });
 
   test('a whole runtime runs on it, and the layers above cannot tell', async () => {
