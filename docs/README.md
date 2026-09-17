@@ -83,6 +83,7 @@
 | [v3.2.0-state](./spec/v3.2.0-state.md) | **FROZEN** | State Mode：CAS 冲突策略、Snapshot/Restore |
 | [版本索引与变更记录](./spec/CHANGELOG.md) | — | 三层之间的修订、勘误与映射 |
 | [决议记录](./analysis/DECISIONS-v3.2.0-r3.md) | — | 每条规则**为什么**是这样 |
+| [变更提案](../rfcs/README.md) | — | 改变语义的提案，及 §18.3 的评审落点 |
 
 ```
 规范性（normative）       docs/spec/

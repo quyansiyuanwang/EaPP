@@ -139,8 +139,8 @@ export class StateChannelImpl implements StateChannel {
 
   /**
    * §9.2: the head is read BEFORE the cells. Reading them from a single snapshot call and
-   * then deriving `maxRevision` from the result — as r2 did — makes the consistency
-   * assertion a tautology that no transport can violate.
+   * then deriving `maxRevision` from the result makes the consistency assertion a
+   * tautology that no transport can violate.
    */
   async snapshot(pattern: StatePattern): Promise<StateSnapshot> {
     validatePattern(pattern);

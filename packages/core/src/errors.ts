@@ -32,7 +32,7 @@ export interface EappErrorShape {
 }
 
 /**
- * Codes the stack considers retryable by default (v3.2.0-r3 §13 / D-33).
+ * Codes the stack considers retryable by default (v3.2 §13).
  * `EAPP_REVISION_CONFLICT` is a CAS conflict: re-reading and retrying may succeed.
  */
 export const RETRYABLE_CODES: ReadonlySet<string> = new Set<string>(['EAPP_REVISION_CONFLICT']);

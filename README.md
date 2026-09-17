@@ -140,6 +140,7 @@ packages/                     TypeScript 参考实现
 
 implementations/go/           独立的 Composition Core 实现
 conformance/                  语言中立的 driver 协议与 harness
+rfcs/                         改变语义的规范变更提案
 tests/conformance/            与 docs/spec 对应的不变量测试
 tools/                        冻结闸门与文档链接闸门
 examples/                     5 个可运行示例，各自包含断言

@@ -325,7 +325,7 @@ export class MemoryTransport implements StateTransport {
 
     if (expected === null) {
       // "MUST NOT have ever existed" — a logically deleted cell still counts as existing,
-      // so `null` cannot be used to resurrect a key (v3.2 §5.2, closing r2's F-01).
+      // so `null` cannot be used to resurrect a key (v3.2 §5.2).
       if (current) {
         throw new EappError('EAPP_REVISION_CONFLICT', `key '${update.key}' already exists`);
       }

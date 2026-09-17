@@ -54,8 +54,8 @@ export function matchesStatePattern(key: string, pattern: StatePattern): boolean
 }
 
 /**
- * SU-2: presence is decided by the property existing. r2 used `value !== undefined`,
- * which made it impossible to write a legitimate `undefined` value.
+ * SU-2: presence is decided by the property existing. Deciding it with
+ * `value !== undefined` makes it impossible to write a legitimate `undefined` value.
  */
 export function hasValueProperty(update: StateUpdate): boolean {
   return Object.prototype.hasOwnProperty.call(update, 'value');

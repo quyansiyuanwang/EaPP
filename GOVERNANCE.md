@@ -139,6 +139,7 @@ docs/analysis/DECISIONS-*.md    每条规则为什么是这样（非规范性）
 |---|---|
 | `docs/analysis/DECISIONS-v3.2.0-r3.md` | 51 条裁定的**理由**（D-01…D-38 内部，R-0…R-13 跨文档） |
 | `docs/CONFORMANCE.md` §5 | 实现相对规范的**已登记偏离** |
+| `rfcs/` | 改变语义的变更提案，及其评审状态 |
 | `docs/spec/CHANGELOG.md` | 版本之间的全部修订与映射 |
 
 判断一条规则时，**先读决议记录**。规范定义规则，决议记录说明其依据。

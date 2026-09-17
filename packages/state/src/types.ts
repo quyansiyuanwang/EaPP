@@ -65,7 +65,8 @@ export interface StateChange {
 
 export interface StateSnapshot {
   readonly channel: string;
-  /** The selection this snapshot covers. Added in r3; r2 had no way to say it (§9.1). */
+  /** The selection this snapshot covers (§9.1). Without it a snapshot cannot be restored
+to a subset of its own key space. */
   readonly pattern: StatePattern;
   readonly cells: StateCell[];
   /** The channel head observed BEFORE the cells were read (§9.2). */
@@ -90,7 +91,8 @@ export interface StateChannelConfig {
   conflictPolicy: 'cas';
   /**
    * The channel's owning identity. Used as `updatedBy` when a write carries no actor,
-   * which is what makes SC-5 satisfiable at all — r2 had no source for it.
+   * which is what makes SC-5 satisfiable at all: without an owner there is no source
+   * for `updatedBy`, and SC-5 becomes a rule with no way to obey it.
    */
   owner: Identity;
 }

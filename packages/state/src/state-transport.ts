@@ -20,9 +20,9 @@ import type {
  *  - `readChangesAfter` returns a **change stream**, not `StateCell[]`. A post-image
  *    array cannot express two writes to the same key, so the intermediate change is lost
  *    forever and an observation cursor has no meaning.
- *  - Addressing is by the `(channel, key)` PAIR (TS-13). r2 built map keys with
- *    `` `${channel}:${key}` ``, which makes `("a", "b:c")` and `("a:b", "c")` the same
- *    cell and lets one channel corrupt another.
+ *  - Addressing is by the `(channel, key)` PAIR (TS-13). Concatenating them into one
+ *    map key makes `("a", "b:c")` and `("a:b", "c")` the same cell, which lets one
+ *    channel corrupt another.
  */
 
 export interface StateTransportCapabilities extends TransportCapabilities {
@@ -81,7 +81,8 @@ export type StateCapability = 'state' | 'revision' | 'watch' | 'snapshot';
 
 /**
  * TS-2: every capability flag MUST have exactly one mandated runtime consequence,
- * enforced at the earliest possible call. r2 declared four flags and consulted none.
+ * enforced at the earliest possible call. Declaring flags and consulting none of them
+ * is indistinguishable from not declaring them.
  */
 export function assertStateCapability(transport: StateTransport, feature: StateCapability): void {
   const c = transport.capabilities;
