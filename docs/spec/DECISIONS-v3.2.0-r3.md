@@ -734,6 +734,370 @@ MUST NOT 存在空的测试体（无 assert 的 test MUST 被删除或补全）�
 
 ---
 
+## 第九部分：跨文档收敛决议（X-1 … X-12）
+
+v3.0 / v3.1 补入后重新核对，发现第二类问题：**两份文档各自都说得通，但放在一起不可能同时成立**。
+本节逐条裁定。**其中 R-0 是所有其它决议的前提。**
+
+---
+
+### R-0　顺序裁定：v3.1 必须先冻结，v3.2 才能冻结
+
+```
+v3.2 头部声明：  前置：v3.0.0-core FROZEN / v3.1.0-interaction SEMANTIC FROZEN
+v3.1 的正文：    §14 冻结声明（草案）
+                 文末：「**EaPP v3.1.0 Interaction Layer — Draft**」
+                       「**下一步：一致性测试通过后，标记 v3.1.0 FROZEN。**」
+```
+
+**裁定**：v3.1 **没有冻结**。v3.2 §16 把"与 v3.1 的接口一致性验证 ✅"列为已满足的冻结条件，
+而该基线尚不存在，且**已经与 v3.2 冲突**（X-1 / X-2 / X-4 / X-5 / X-6 均为 P0）。
+
+```
+冻结顺序 MUST 为：
+
+  v3.0.0-core           FROZEN  ✅（§0 已自述冻结，本轮不做任何修改）
+        ↓
+  v3.1.0-interaction    先收敛为一致、自洽、通过一致性测试的版本 → FROZEN   ← 必须补课
+        ↓
+  v3.2.0-state          在已冻结的 v3.1 之上做 r3 → FROZEN
+```
+
+**理由**：v3.1 处于 DRAFT 状态，因此它可以被直接修订而不触发勘误流程；
+一旦 v3.2 抢先在冲突的 v3.1 上冻结，X-2（`revision: number` vs `Revision = string`）
+和 X-4（`AckContext.nack`）就会变成两个冻结层之间的**永久不兼容**。
+
+---
+
+### R-1　`ChannelMode` 不存在"扩展"　【裁定 X-1】
+
+**v3.1 §2.1 L105 已经含 `'state'`**：
+
+```typescript
+type ChannelMode = 'request' | 'event' | 'stream' | 'state';
+```
+
+v3.2 §9.3 却写「v3.1 ChannelMode = request | event | stream」，并声称自己扩展出了第四种、
+且「这是唯一修改」。
+
+**裁定**：
+
+```
+v3.2 MUST NOT 修改 ChannelMode。
+'state' 是 v3.1 的既有成员，v3.2 不存在任何"扩展"。
+§9.3 整节与 IX-5 作废。
+```
+
+**IX 系列收敛为两条**（取代 r2 的 IX-1 / IX-5，并与 D-24 合并）：
+
+```
+IX-1  State Mode MUST NOT modify, remove or retype any existing member of any v3.0 or v3.1 type.
+IX-2  State Mode MUST reuse v3.1 Subscription / Cursor / AckContext semantics.
+IX-3  State Mode MUST NOT introduce new primitives into Channel.
+IX-4  StateTransport MUST extend v3.1 Transport.
+IX-6  StateChannel MUST be a narrowing view of Channel; narrowing mode to 'state'
+      MUST NOT be considered a modification under IX-1.
+```
+
+---
+
+### R-2　`revision` 的类型：v3.2 必须修订 v3.1 的 `number`　【裁定 X-2】
+
+```
+v3.1 §3.4 L271-276:  interface StateMessage { key: string; value: unknown;
+                                              revision: number;   // 单调递增
+                                              deleted?: boolean; }
+v3.2 §4.1   L219:    type Revision = string;   // opaque token, Transport-local
+```
+
+**裁定**：以 v3.2 为准，**修订 v3.1**。理由：
+
+1. `Revision` 要能承载"日志位置"，而 v3.1 §6.2 已把同层的 `Cursor` 定为 `string`；
+2. v3.2 的 D-01 要求 Revision 与 Cursor 同域，否则 REV-7 无法落地；
+3. v3.1 尚未冻结，直接修订不触发勘误流程（见 R-0）。
+
+```
+v3.1.0 L274 修订为：  revision: Revision;   // 见 v3.2.0 §4；等价于 Channel 内的 Cursor 位置
+```
+
+---
+
+### R-3　Revision 与 Cursor 同域　【裁定 X-3，强化 D-01】
+
+```
+v3.1 §6.2 L425:  type Cursor = string;   // 不透明字符串，全局有序
+v3.1 CR-1 L632:  Cursor MUST be globally ordered within Channel.
+```
+
+**裁定**：v3.1 的 CR-1 与 v3.2 的 REV-1/REV-2/REV-4 是**同一条规律的两个侧面**。
+只要按 D-01 把 `Revision` 定义为"Channel 内日志位置"，则：
+
+```
+Cursor  = Channel 内日志位置
+Revision = Channel 内日志位置
+⇒ Revision 与 Cursor 是同一域上的同一类型
+⇒ REV-7 不再是"例外"，而是 CR-1 的直接推论
+⇒ REV-6（Revision MUST NOT 用作 v3.1 模式的 Cursor）自动成立：
+  request / event / stream 没有 Revision 这一概念，谈不上混用
+```
+
+**这是一次真正的语义收敛，而不是打补丁。**
+
+---
+
+### R-4　`StateUpdateEvent` MUST 实现完整 `AckContext`　【裁定 X-4，修正 D-15】
+
+```
+v3.1 §7.1 L470-473:  interface AckContext { ack(): Promise<void>; nack(): Promise<void>; }
+                     AK-1 ack() 幂等 / AK-2 nack() 幂等
+                     AK-3 ack() 后 MUST NOT nack() / AK-4 nack() 后 MUST NOT ack()
+                     AK-5 已终结的 AckContext 再次调用 MUST 返回 EAPP_LEASE_CLOSED
+
+v3.2 §5.1 / L1203-1209:  interface StateUpdateEvent { ...; ack(): Promise<void>; }   ← 缺 nack
+```
+
+**裁定**：
+
+```typescript
+interface StateUpdateEvent extends AckContext {
+  readonly type: 'set' | 'deleted';
+  readonly key: string;
+  readonly revision: Revision;
+  readonly value?: unknown;
+}
+```
+
+```
+nack()  不推进 cursor；该变更 MUST 在下一次迭代中重投。
+ack()   幂等（AK-1）；nack() 幂等（AK-2）；AK-3/AK-4/AK-5 全部适用。
+```
+
+**若缺 `nack()`，v3.2 的 StateWatcher 不是合法的 v3.1 AckContext，SW-1 直接不成立。**
+
+---
+
+### R-5　cursor 推进规则以 v3.1 §6.4 为准，删除 `pending`　【裁定 X-5，取代 D-15】
+
+```
+v3.1 §6.1 L420:  Cursor MUST NOT 随收到消息自动前移。它只随 ack 前移。
+v3.1 §6.4 L456-458:  ack(E3) → cursor = E3
+                     「ack 一个更新的 cursor 意味着放弃中间未 ack 的消息」
+v3.1 CR-3 L634:  Cursor MUST NOT skip unacked messages **implicitly**（注意：隐式）
+
+v3.2 §14.2 L1185: 「按 cursor 顺序推进，只推进到第一个 PENDING 之前」
+```
+
+**裁定**：
+
+```
+1. CR-3 禁止的是"隐式跳过"（自动前移）。
+   显式 ack 一个更靠后的变更并因此放弃中间项，是 v3.1 §6.4 明确允许的行为。
+2. 因此 StateWatcher.ack() MUST 将 cursor 置为该变更的 revision（单调取 max）。
+3. `pending` 结构整体删除 —— 它不是 v3.1 的模型，且无法表达 §6.4 的显式跳过。
+```
+
+**D-15 作废。**
+
+---
+
+### R-6　Channel 创建路径：必须经 v3.0 的 `bind()`　【裁定 X-6，取代 D-30】
+
+```
+v3.1 §8.1 L497:  Channel **MUST** 由 Binding 派生（引用的是 Binding，不是 binding 字符串）
+v3.1 CC-1 L644:  Channel MUST NOT exist independently of Binding.
+v3.0 §6.1 L260-266:  Binding { id, from, to, capability, contract? }
+v3.0 §9.2 L535:      bind(request: BindRequest): Promise<Binding>
+
+v3.2 §10.1 L696-700: StateChannelOptions { binding: string; mode: 'state'; conflictPolicy? }
+v3.2 §14.1 L987-990: constructor(base: Channel, transport, config)   ← 收已建好的 Channel
+```
+
+**裁定**：v3.2 缺一条完整的 `Binding → Channel` 实例化路径。冻结为三段式：
+
+```
+① Composition Core（v3.0）
+     const binding = await core.bind({ from, to, capability });
+
+② Interaction Layer（v3.1）
+     const ref = await interaction.deriveChannel(binding, {
+       mode: 'state',
+       delivery: 'at-least-once',        // v3.1 §4.4 强制
+     });
+
+③ State Mode（v3.2）
+     const ch = await interaction.instantiate(ref, { conflictPolicy: 'cas', owner: identity });
+```
+
+```
+MUST NOT 接受裸 binding 字符串。
+若 binding 未处于 ACTIVE，deriveChannel MUST 返回 EAPP_BINDING_INVALID。
+```
+
+**D-30 作废，由本节取代。**
+
+---
+
+### R-7　state 模式的 delivery 恒为 `at-least-once`　【裁定 X-7】
+
+```
+v3.1 §4.4 L338:  | state | at-least-once |
+v3.1 DL-4 L621:  at-least-once MUST ack.
+v3.1 DL-5 L622:  at-least-once consumer MUST be idempotent.
+```
+
+**裁定**：
+
+```
+StateChannel.delivery MUST === 'at-least-once'（MUST NOT 为 'at-most-once'）。
+创建时指定其它值 MUST 返回 EAPP_DELIVERY_UNSUPPORTED。
+StateWatcher MUST ack（DL-4），其消费方 MUST 幂等（DL-5）。
+```
+
+v3.2 全篇未提 delivery —— 此条为新增义务。
+
+---
+
+### R-8　`TransportCapabilities` 合成单一定义，命名统一为 `supports*`　【裁定 X-8】
+
+```typescript
+interface TransportCapabilities {
+  // ---- v3.1 既有 ----
+  persistent: boolean;
+  ordering: 'none' | 'per-source' | 'global';
+  delivery: { atMostOnce: boolean; atLeastOnce: boolean; replay: boolean };
+  supportsCursor: boolean;
+  supportsLease: boolean;
+  // ---- v3.2 新增（命名风格与 v3.1 对齐） ----
+  supportsState: boolean;
+  supportsStateRevision: boolean;
+  supportsStateWatch: boolean;
+  supportsStateSnapshot: boolean;
+  stateConsistency: 'strong' | 'eventual';
+  stateRetention: { kind: 'unbounded' } | { kind: 'window'; entries: number };
+  durabilityBoundary: 'process' | 'machine' | 'cluster' | 'global';   // 见 R-9
+}
+```
+
+**理由**：v3.1 用 `supportsCursor` / `supportsLease`，v3.2 用 `providesStateStorage` /
+`providesStateRevision`。同一接口内两套命名不合规范；统一为 `supports*`。
+
+---
+
+### R-9　`durabilityBoundary` 必须在 v3.1 补定义　【裁定 X-9】
+
+`durabilityBoundary` **只出现在 v3.2 自己的正文里**（§11.3 / §11.4 / TS-5），
+v3.0 与 v3.1 从未声明过它，但 TS-5 却把它当作既成能力来引用。
+
+**裁定**：概念保留（能力矩阵确实需要它），但**归属 v3.1** 并加入 `TransportCapabilities`（见 R-8）。
+
+**TS-5 改写**：
+
+```
+A Transport MUST NOT declare stateConsistency = 'strong' beyond its durabilityBoundary.
+即：durabilityBoundary = 'process' 的 Transport MUST NOT 被表述为跨进程强一致。
+```
+
+---
+
+### R-10　错误模型：保持三层各自扩展，但只定义一个 `EappError` 类　【裁定 X-10】
+
+```
+v3.0 §16 L801:  interface EappError { code: string; message: string; details?: unknown; retryable?: boolean }
+v3.1 §11 L674:  interface EappError { ... }        ← 同名重复声明
+v3.2 §13 L967:  interface EappError { ... }        ← 第三次重复
+三份文档中，只有 interface，没有 class；而三份的参考实现都在 `new EappError(...)`。
+```
+
+**裁定**：**不改动 v3.0 的冻结文本**（`interface` 是类型，可以被类实现）：
+
+```
+1. 在共享包中定义唯一运行时实现：
+   class EappError extends Error implements EappError { ... }
+
+2. 三个 code 联合保持分层，且 MUST 可相加：
+   type EappErrorCode = EappCoreErrorCode | EappInteractionErrorCode | EappStateErrorCode;
+
+3. v3.0 §16 / v3.1 §11 的既有码 MUST NOT 被重命名或改义；
+   层内新增码 MUST 只追加。
+```
+
+**新增的 State 码**：`EAPP_CURSOR_TOO_OLD`、`EAPP_STATE_ACTOR_REQUIRED`（见 D-14）。
+**复用 v3.1 既有码**：`EAPP_UNSUPPORTED`、`EAPP_MODE_INVALID`、`EAPP_DELIVERY_UNSUPPORTED`
+（v3.2 §14 抛的 `EAPP_MODE_INVALID` / `EAPP_UNSUPPORTED` 因此合法，无需新增）。
+
+---
+
+### R-11　目录布局归一为 `packages/`　【裁定 X-11】
+
+```
+v3.0 §19.1 L913-933  与  v3.1 §12.1 L688-723 一致给出：
+    eapp/{spec, reference/{core,interaction,transport}, tests/conformance, examples}
+
+v3.2 §14 给出的是：
+    packages/state/src/state-channel.ts
+    packages/transport/memory/src/state.ts
+    tests/conformance/state.test.ts
+```
+
+**裁定**：
+
+```
+采用 packages/ 布局。v3.0 §19.1 用的是 SHOULD（"参考实现 SHOULD 位于"），
+因此偏离 MUST 不视为违规，但 MUST 在 changelog 中登记映射关系。
+```
+
+| 规范路径（v3.0/v3.1） | 实现路径 |
+|---|---|
+| `reference/core/identity.ts` … | `packages/core/src/identity.ts` … |
+| `reference/interaction/channel.ts` | `packages/interaction/src/channel.ts` |
+| `reference/interaction/modes/state.ts` | `packages/state/src/*`（独立包，v3.2 的决定） |
+| `reference/transport/memory.ts` | `packages/transport/memory/src/*` |
+| `tests/conformance/{core,interaction}.test.ts` | 同名保留 |
+
+---
+
+### R-12　版本规划漂移登记　【裁定 X-12】
+
+```
+v3.1 §14 L1136:  Next: v3.2.0 transport-capability
+实际:            v3.2.0-state
+```
+
+**裁定**：登记进 changelog，`transport-capability` 顺延。
+不修改 v3.1 文本（该行位于"草案"块内，随 v3.1 冻结时一并更新）。
+
+---
+
+### R-13　v3.0 §19.2 已经把"不变量必须有机检测试"写进冻结文本
+
+```
+v3.0 §19.2 L937:  每个不变量 MUST 至少有一个对应的测试用例
+```
+
+**裁定**：这条是 **v3.0 的冻结义务**，对 v3.1 与 v3.2 同样生效。
+它把 D-38 从"我建议的闸门"升级为"已冻结的合规要求"：
+
+```
+每条不变量 MUST 至少有一条测试。
+v3.0 §19.3 的 ConformanceClaim 是冻结接口，冻结报告 MUST 产出该结构：
+    interface ConformanceClaim { eappVersion; levels; testSuite; passed; total }
+```
+
+---
+
+## 附：被本部分取代或修正的早期决议
+
+| 早期决议 | 状态 | 取代者 |
+|---|---|---|
+| D-02 `SubscriptionMode = 'exclusive' \| 'group'` | ⚠️ 修订 | v3.1 全无 `Subscription` 类型；本决议把它登记为 **v3.1 新增**，而非"重建 v3.1 既有定义"；取值不变 |
+| D-03 `Cursor` 为 branded type | ❌ 作废 | **R-3**。v3.1 §6.2 已冻结 `type Cursor = string`，不得改。改为定义 `CursorAnchor = 'earliest' \| 'latest' \| Cursor`，并规定**字面量优先解析** |
+| D-14 错误码表 | ⚠️ 修订 | **R-10**。改为"分层联合 + 单一类"，复用 v3.1 既有码 |
+| D-15 `pending` 以 cursor 为键 | ❌ 作废 | **R-5**。`pending` 整体删除 |
+| D-24 IX-1 重写 | ⚠️ 修订 | **R-1**。IX 收敛为六条 |
+| D-30 `createStateChannel(transport, options)` | ❌ 作废 | **R-6**。改为经 `bind()` 的三段式路径 |
+
+---
+
 ## 附：缺陷 → 决议 对照（完整）
 
 | 缺陷 | 决议 | 缺陷 | 决议 | 缺陷 | 决议 | 缺陷 | 决议 |

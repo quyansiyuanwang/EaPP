@@ -36,39 +36,85 @@
 | CI | ❌ 无 | — |
 | docs 树 | ❌ 无 | 规范/审查记录/changelog 无处安放 |
 
-> 注：文档 §16 的冻结路线图已经把 `v3.2.0-state` 推进到 **r2 → Final Review**，
-> 但 v3.0 / v3.1 那两级在路线图上被标注为已 FROZEN，实物却缺失。
-> 这是本次分析要暴露的最大结构性缺口。
+> 注：v3.0.0 / v3.1.0 两份文档在分析过程中被补入 `tmp/draft/`，
+> §2 已据此重写（初版曾判定"前置规范不存在"，该判定已作废）。
+> 结论没有变好，只是从"缺失"变成了"存在但互相冲突"——见 §2b。
 
 ---
 
-## 2. 缺口 A：前置规范（v3.0 / v3.1）
+## 2. 缺口 A：前置规范的状态
 
-以下符号在 v3.2 中被**依赖、被继承、被 `throw`**，但没有一处给出定义。
-v3.2 里也**没有任何 `import` 语句**，所以不存在"在别处定义"的可能。
+三份文档现在都在手上。逐条核对后的真实状态是：
 
-| 符号 | v3.2 中的依赖位置 | 状态 |
+| 层 | 文档 | 自述状态 | 证据 |
+|---|---|---|---|
+| Composition | v3.0.0 | **FROZEN**（真） | §0 L21「本文自发布之日起冻结」；§0 L37-44 列出须进 4.0 的变更 |
+| Interaction | v3.1.0 | **DRAFT**（v3.2 说是 FROZEN，**不实**） | §14 L1128「冻结声明（**草案**）」；文末 L1176「**Draft**」；L1180「下一步：一致性测试通过后，标记 v3.1.0 FROZEN」 |
+| State | v3.2.0-r2 | Freeze Candidate | — |
+
+**v3.2 的文档头声称**：
+
+```
+前置：v3.0.0-core FROZEN / v3.1.0-interaction SEMANTIC FROZEN
+```
+
+**v3.1 的正文亲口否认**：
+
+```
+L1128:  ## 14. 冻结声明（草案）
+L1130:  一旦 I1-I4 通过一致性测试：
+L1176:  **EaPP v3.1.0 Interaction Layer — Draft**
+L1180:  **下一步：一致性测试通过后，标记 v3.1.0 FROZEN。**
+```
+
+> 这不是文字瑕疵。v3.2 的 §16 把"与 v3.1 的接口一致性验证 ✅"列为已满足的冻结条件，
+> 而它所依赖的那个基线**自己还没冻结**，并且**已经和 v3.2 冲突**（§2b）。
+> State Mode 无法"冻结在一个未冻结的父层之上"。
+
+### 2.1 v3.2 中被依赖但确实无定义的符号
+
+三份文档合起来看，仍有以下符号从未被任何一份定义：
+
+| 符号 | 依赖位置 | 状态 |
 |---|---|---|
-| `Identity` | SC-5 `updatedBy MUST be existing Identity`；§14.4 `{domain,id,instance}` 字面量 | ❌ 未定义 |
-| `Tuple` 序列化约束 | SC-4 "与 v3.0 Tuple 约束一致" | ❌ 未定义 |
-| `Channel` / `ChannelMode` / `DeliveryGuarantee` / `ChannelState` | §9.2 仅**重述**字段，非权威定义 | ⚠️ 无权威源 |
-| `Subscription` | §5.1 `StateWatcher extends Subscription` | ❌ 未定义 |
-| `SubscriptionMode` | §5.1 / §14.2；全文档仅出现字面量 `'exclusive'` | ❌ 未定义 |
-| `SubscriptionState` | §14.2 `= 'ACTIVE'`；全文档仅出现 `'ACTIVE'` | ❌ 未定义 |
-| `Cursor` | §2.2 本体论核心；SW-4 | ❌ 未定义 |
-| `AckContext` | §5.3 只有一张三方对比表，无接口 | ❌ 未定义 |
-| `Delivery` / `Lease` | §5.3 对比表；`Lease.ack` | ❌ 未定义 |
-| `Transport` | §11.1 / §14.3 `extends Transport` | ❌ 未定义 |
-| `TransportCapabilities` 基础字段 | §11.2 写 `// ... v3.1 已有` | ❌ 未定义 |
-| `durabilityBoundary` 取值域 | §11.4（矩阵列名）/ §11.3 | ❌ 未定义 |
-| `EappError` **类** | §14 中 13 处 `new EappError(code, msg)` | ❌ 未定义（§13 只有 interface + 字符串联合） |
-| `request` / `event` / `stream` 语义 | §1.1 声称 v3.1 已冻结 | ❌ 未定义 |
-| `MemoryTransport` | §14.4 `extends MemoryTransport` | ❌ 未定义 |
-| `WatchOptions` | §9.2 / §10.2 / §14.1 / §14.2 | ❌ 未定义（**v3.2 自身也漏了**） |
-| 测试 helper `makeStateChannel` / `collect` / `compareRevision` | §15 全文 30+ 处调用 | ❌ 未定义 |
+| `WatchOptions` | v3.2 §9.2 / §10.2 / §14.1 / §14.2 | ❌ 三份都没有 |
+| `durabilityBoundary` | v3.2 §11.3 / §11.4 / TS-5 | ❌ 全仓库仅出现在 v3.2 自身，且**没有任何一份文档声明过它** |
+| `Subscription` / `SubscriptionMode` / `SubscriptionState` | v3.2 §5.1 / §14.2 | ❌ 三份都没有（v3.1 定义的是 `Cursor` / `AckContext` / `Lease`，没有 Subscription） |
+| `Tuple` 序列化约束 | v3.2 SC-4「与 v3.0 Tuple 约束一致」 | ❌ v3.0 只说 Tuple Space 在 Interaction 层（§11.2），无约束定义 |
+| `EappError` **类** | v3.2 §14 的 13 处 `new EappError(...)` | ❌ v3.0 §16 / v3.1 §11 / v3.2 §13 三份都只声明 `interface`，三份都**没有类** |
+| `MemoryTransport` 基类 | v3.2 §14.4 `extends MemoryTransport` | ❌ 三份都没有 |
+| 测试 helper `makeStateChannel` / `collect` / `compareRevision` | v3.2 §15 全篇 | ❌ 三份都没有 |
 
-**结论**：State Mode 的 4 个新本体（StateCell / Revision / StateWatcher / StateUpdate）
-有 3 个的父类型不在手上。**v3.0 与 v3.1 必须先落地，否则 v3.2 无法冻结。**
+### 2.2 一个此前被低估的连带影响
+
+v3.1 §4.4 把 `state` 模式的投递保证限死为 `at-least-once`，§4.3 又要求
+`at-least-once 消费者 MUST ack`（DL-4）、`MUST 幂等处理`（DL-5）。
+v3.2 全篇没有一处提到 `delivery` 或这两条义务 —— State Mode 的 ack 语义
+**还没有和 v3.1 的投递语义对齐**。
+
+---
+
+## 2b. 缺口 A′：v3.1 与 v3.2 的跨文档冲突
+
+这些不是"缺定义"，是**两份文档同时成立时不可能**。全部逐字核对过。
+
+| # | 冲突 | v3.1 说 | v3.2 说 | 裁定 |
+|---|---|---|---|---|
+| X-1 | **ChannelMode** | §2.1 L105 已经包含 `'state'`：`type ChannelMode = 'request' \| 'event' \| 'stream' \| 'state'` | §9.3 L661-668 说 v3.1 只有三种，v3.2 **扩展**出第四种，「这是唯一修改」 | v3.1 为准。v3.2 的 §9.3 / IX-5 是对既成事实的错误描述——`'state'` **早已存在**，不存在"扩展" |
+| X-2 | **revision 类型** | §3.4 L274：`revision: number; // 单调递增` | §4.1 L219：`type Revision = string; // opaque token` | 直接冲突。v3.2 必须显式**勘误** v3.1 §3.4 |
+| X-3 | **Cursor 类型** | §6.2 L425：`type Cursor = string; // 不透明字符串，全局有序`；CR-1「MUST 在 Channel 内全局有序」 | REV-5 要求 Revision opaque；REV-7 允许 Revision 当 Cursor | 不冲突，但**只有把 Revision 定义为 Channel 内的日志位置**（见 D-01）才能让两者重合；否则 REV-7 无法落地 |
+| X-4 | **AckContext** | §7.1 L470-473：`{ ack(): Promise<void>; nack(): Promise<void> }`，AK-1…AK-5 | §5.1 / L1208：只给 `ack()`，没有 `nack()` | v3.1 为准。v3.2 的 `StateUpdateEvent` **不是合法的 v3.1 AckContext**，违反 SW-1 |
+| X-5 | **cursor 推进规则** | §6.1 L420「Cursor MUST NOT 随收到消息自动前移，只随 ack 前移」；§6.4 L458「ack 一个更新的 cursor 意味着放弃中间未 ack 的消息」 | §14.2 L1185「只推进到第一个 PENDING 之前」(完整实现略) | 二者语义不同。v3.1 §6.4 是**显式跳过**，v3.2 的注释是**禁止跳过**。以 v3.1 为准，v3.2 的 `pending` 结构应整体删除 |
+| X-6 | **Channel 创建路径** | §8.1 L497「Channel MUST 由 Binding 派生」；CC-1 L644「Channel MUST NOT 独立于 Binding 存在」 | §10.1 只给 `StateChannelOptions{binding, mode, conflictPolicy}`；§14.1 构造函数收的是**已建好的 Channel** | 两者都不完整：v3.2 缺一条 `Binding → Channel` 的实例化路径。必须补，且必须经 v3.0 的 `bind()` |
+| X-7 | **delivery** | §4.4 L338：state 模式**只允许** `at-least-once` | 全篇未提 delivery | v3.1 为准；v3.2 需补上并强制 |
+| X-8 | **TransportCapabilities** | §9.2 L545-559：`{persistent, ordering, delivery{atMostOnce,atLeastOnce,replay}, supportsCursor, supportsLease}` | §11.2 L808-816：`{providesStateStorage, providesStateRevision, providesStateWatch, providesStateSnapshot, stateConsistency}` | 需要合成一个接口。且命名风格不一致（v3.1 用 `supportsX`，v3.2 用 `providesX`） |
+| X-9 | **`durabilityBoundary`** | 无此概念 | §11.3 / TS-5 把它当作既有能力（"State consistency MUST be consistent with durabilityBoundary"） | v3.2 凭空引用了不存在的字段。要么在 v3.1 补定义，要么从 v3.2 删除 |
+| X-10 | **错误模型** | v3.0 §16 + v3.1 §11 各有一份 `EappErrorCode` / `EappError`（均为 `interface`） | §13 第三份 `EappStateErrorCode` + `EappError` | 三份重复声明同名类型，且三份都没有**类**。必须收敛为单一定义 + 各自扩展码 |
+| X-11 | **目录结构** | v3.0 §19.1 L913-933 / v3.1 §12.1 L688-723：`eapp/{spec, reference/{core,interaction,transport}, tests, examples}` | §14 路径：`packages/state/src/...`、`packages/transport/memory/src/state.ts` | v3.2 换了一套布局且未声明。需归一 |
+| X-12 | **下一版本号** | v3.1 §14 L1136：`Next: v3.2.0 transport-capability` | 实际 v3.2 = State Mode | 版本规划漂移，需在 changelog 里记录 |
+
+**结论**：v3.2 无法在原样不动的情况下冻结。要冻结，必须先做一次
+**v3.1 → v3.1.1 勘误 + v3.2 r3** 的联合收敛，其中 X-1 / X-2 / X-4 / X-5 / X-6 是 P0。
 
 ---
 
