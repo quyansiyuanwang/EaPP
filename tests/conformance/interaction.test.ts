@@ -7,6 +7,7 @@ import {
   LeaseManager,
   LocalAck,
   TransportSubscription,
+  assertCapabilitiesCoherent,
   assertCapability,
   assertDeclared,
   compareCursor,
@@ -960,6 +961,31 @@ describe('capability and lifecycle guards', () => {
 
     await channel.close();
     expect(() => channel.requireActive('publish')).toThrow('EAPP_CHANNEL_CLOSED');
+  });
+
+  test('TR-3: an internally inconsistent capability declaration is refused', () => {
+    const cripple = (patch: Partial<TransportCapabilities>): MemoryTransport => {
+      const transport = makeTransport();
+      (transport as unknown as { capabilities: TransportCapabilities }).capabilities = {
+        ...transport.capabilities,
+        ...patch,
+      };
+      return transport;
+    };
+
+    // A cursor names a position in an ordered sequence — there are no positions to name
+    // if the transport declares no ordering.
+    const unordered = cripple({ supportsCursor: true, ordering: 'none' });
+    expect(() => assertCapabilitiesCoherent(unordered)).toThrow('EAPP_CURSOR_UNSUPPORTED');
+
+    // Nothing that lives only in memory reaches across a cluster.
+    const ghostly = cripple({ persistent: false, durabilityBoundary: 'cluster' });
+    expect(() => assertCapabilitiesCoherent(ghostly)).toThrow('EAPP_UNSUPPORTED');
+
+    // The layer refuses to be built on either, rather than surfacing it later as a
+    // mysterious ordering or durability problem.
+    expect(() => new InteractionLayerImpl({ transport: ghostly })).toThrow('EAPP_UNSUPPORTED');
+    expect(() => assertCapabilitiesCoherent(makeTransport())).not.toThrow();
   });
 
   test('EAPP_CURSOR_INVALID: a cursor from another transport is rejected', async () => {

@@ -120,11 +120,10 @@ v3.2.0-state         invariant 84/84 covered   gate PASS
 | 跨进程 Transport | 只实现 Memory（`durabilityBoundary: 'process'`）。Socket / Redis / NATS 未实现 |
 | CRDT | v3.2 §12.4 已裁定其 `supportsStateRevision = false`，属于 Extension |
 | Trust Domain 权限 | v3.0 §8.2 只冻结了 trust level 的分类语义，未冻结授权 |
-| `persistent` / `ordering` / `durabilityBoundary` 未守卫 | TR-4 已对 `delivery` 落地，但这三个能力标志仍只被类型检查，没有运行时守卫 |
 
 ### 已经关掉的缺口
 
-下面五项曾列在本节，现已实现并有回归测试。
+下面六项曾列在本节，现已实现并有回归测试。
 
 | 项 | 关闭方式 |
 |---|---|
@@ -133,6 +132,8 @@ v3.2.0-state         invariant 84/84 covered   gate PASS
 | ~~`EAPP_CURSOR_INVALID` 不可达~~ | `MemoryTransport` 校验收到的 cursor 必须由本实例签发（`readAfter` / `readChangesAfter` / `resolveAnchor`）。接受一个外来 cursor 会静默读到错的位置，或什么都读不到 |
 | ~~日志压缩未实现、`EAPP_CURSOR_TOO_OLD` 无产生点~~ | `MemoryTransport` 支持 `retention: { kind: 'window', entries: n }`，并在**两个日志上同时**执行，保持位置域一致。`stateRetention` 能力声明实际反映配置。已被删除的具体 cursor → `EAPP_CURSOR_TOO_OLD`；`'earliest'` 解析为保留起点。v3.1 §6.2 规则 7 明确了"MUST NOT 静默替换为保留起点"及 floor 的精确语义 |
 | ~~未消费的 `StateDeleteRequest`~~ | 已删除。冻结规范 §11 用的是位置参数，这个类型没有任何规范依据 |
+| ~~C7 Constraints 匹配语义~~ | 原报告写的是"未实现"，**这一条是错的**：`constraintSatisfied()` 一直在做精确匹配。真正缺的是规范从未定义"匹配"指什么。v3.0 新增 **C-7** 把它钉成「`kind` 相等 + `value` 结构相等」，C7 合规等级因此终于有规则可依 |
+| ~~`persistent` / `ordering` / `durabilityBoundary` 未守卫~~ | `assertCapabilitiesCoherent()` 在 Interaction Layer 构造时执行。它拒绝两种**自相矛盾**的声明：`supportsCursor` + `ordering: 'none'`（cursor 命名的是有序序列中的位置），以及 `persistent: false` + `durabilityBoundary: 'cluster' \| 'global'`（只在内存里的东西跨不过集群边界）。TR-3「MUST NOT 伪装支持」不仅能靠单个标志撒谎，也能靠组合撒谎 |
 
 ---
 

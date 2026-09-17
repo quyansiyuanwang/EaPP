@@ -114,6 +114,41 @@ export function assertDeclared(transport: Transport): void {
 }
 
 /**
+ * TR-3: a declaration MUST be internally consistent.
+ *
+ * "MUST NOT fake support" is easy to read as a rule about individual flags, but a
+ * declaration can also lie by combining them. Two combinations cannot both be true of any
+ * real transport, and both would mislead a caller that trusted them:
+ *
+ *   cursor support without any ordering
+ *       A cursor names a position in an ordered sequence. Claiming one while declaring
+ *       `ordering: 'none'` promises positions that do not exist.
+ *
+ *   a wide durability boundary without persistence
+ *       Nothing that survives only in memory reaches across a cluster. Declaring
+ *       `cluster` or `global` while `persistent` is false would let a caller build
+ *       cross-process consistency on storage that dies with the process.
+ */
+export function assertCapabilitiesCoherent(transport: Transport): void {
+  assertDeclared(transport);
+  const { supportsCursor, ordering, persistent, durabilityBoundary } = transport.capabilities;
+
+  if (supportsCursor && ordering === 'none') {
+    throw new EappError(
+      'EAPP_CURSOR_UNSUPPORTED',
+      `transport ${transport.id} claims cursor support but declares ordering 'none'`,
+    );
+  }
+
+  if (!persistent && (durabilityBoundary === 'cluster' || durabilityBoundary === 'global')) {
+    throw new EappError(
+      'EAPP_UNSUPPORTED',
+      `transport ${transport.id} is not persistent but declares a '${durabilityBoundary}' durability boundary`,
+    );
+  }
+}
+
+/**
  * TR-4: a Channel MUST NOT use a feature the transport does not provide.
  *
  * Declaring a capability and never consulting it is the same as not declaring it — worse,

@@ -9,7 +9,11 @@ import {
   type DeliveryGuarantee,
   type ManagedChannel,
 } from './channel.js';
-import { assertTransportSupportsDelivery, type Transport } from './transport.js';
+import {
+  assertCapabilitiesCoherent,
+  assertTransportSupportsDelivery,
+  type Transport,
+} from './transport.js';
 import {
   ConsumerGroupImpl,
   type ConsumerGroup,
@@ -105,6 +109,9 @@ export class InteractionLayerImpl implements InteractionLayer {
 
   constructor(options: InteractionLayerOptions) {
     this.#transport = options.transport;
+    // TR-3: fail fast on a declaration that cannot be true of any real transport, rather
+    // than discovering it later as a mysterious ordering or durability problem.
+    assertCapabilitiesCoherent(this.#transport);
     this.#bindings = options.bindings;
     this.#nextId = options.nextId ?? (() => `ch-${++channelSeq}`);
 
