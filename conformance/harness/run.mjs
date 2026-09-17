@@ -1,0 +1,236 @@
+#!/usr/bin/env node
+/**
+ * Language-neutral conformance harness for EaPP.
+ *
+ *   node conformance/harness/run.mjs                       # every driver shipped here
+ *   node conformance/harness/run.mjs --driver "go run ./cmd/eapp-driver" --cwd implementations/go
+ *   node conformance/harness/run.mjs --only B-3            # one invariant
+ *   node conformance/harness/run.mjs --list                # what is covered
+ *
+ * This file imports **nothing** from any EaPP implementation. It spawns a driver,
+ * speaks the protocol in `conformance/driver.md`, and judges only what comes back.
+ * That is the point: an implementation cannot pass by being the reference one.
+ *
+ * Exit: 0 = every check passed for every driver, 1 = at least one did not.
+ */
+
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { Driver } from './driver.mjs';
+import { CORE_CHECKS } from './checks/core.mjs';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(HERE, '..', '..');
+
+// Resolving the TypeScript runner is tooling, not implementation: the harness still
+// imports nothing from `@eapp/*`.
+const require = createRequire(import.meta.url);
+const tsx = require.resolve('tsx/cli');
+
+/** The drivers this repository ships, so the harness is useful with no arguments. */
+const BUILT_IN = [
+  {
+    name: 'eapp-go (independent implementation)',
+    command: 'go',
+    args: ['run', './cmd/eapp-driver'],
+    cwd: path.join(ROOT, 'implementations', 'go'),
+  },
+  {
+    name: 'eapp-ts (reference implementation)',
+    command: process.execPath,
+    args: [tsx, path.join(ROOT, 'conformance', 'drivers', 'reference.ts')],
+    cwd: ROOT,
+  },
+];
+
+function parseArgs(argv) {
+  const out = { verbose: false, list: false, json: false, only: [] };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === '--verbose' || arg === '-v') out.verbose = true;
+    else if (arg === '--list') out.list = true;
+    else if (arg === '--json') out.json = true;
+    else if (arg === '--only') out.only.push(argv[++i]);
+    else if (arg === '--driver') out.driver = argv[++i];
+    else if (arg === '--cwd') out.cwd = argv[++i];
+    else if (arg === '--debug') out.debug = true;
+  }
+  return out;
+}
+
+/**
+ * What each check gets to work with.
+ *
+ * `driver` is the only capability, deliberately: a check that could reach into an
+ * implementation would stop being a conformance check.
+ */
+function makeTester(driver) {
+  return {
+    driver,
+    assert(condition, message) {
+      if (!condition) throw new Error(message);
+    },
+    equal(actual, expected, message) {
+      if (actual !== expected) {
+        throw new Error(`${message} — got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
+      }
+    },
+    deepEqual(actual, expected, message) {
+      const a = JSON.stringify(actual);
+      const b = JSON.stringify(expected);
+      if (a !== b) throw new Error(`${message} — got ${a}, expected ${b}`);
+    },
+  };
+}
+
+function selectChecks(only) {
+  if (only.length === 0) return CORE_CHECKS;
+  return CORE_CHECKS.filter((check) =>
+    only.some((wanted) => check.id === wanted || check.id.split(' / ').includes(wanted)),
+  );
+}
+
+async function runDriver(spec, options) {
+  const checks = selectChecks(options.only);
+  const results = [];
+
+  let driver;
+  try {
+    driver = await Driver.start({
+      command: spec.command,
+      args: spec.args,
+      cwd: spec.cwd,
+      debug: options.debug,
+    });
+  } catch (error) {
+    return { spec, results, startupError: error };
+  }
+
+  const layers = driver.hello.layers ?? [];
+  if (!layers.includes('core')) {
+    await driver.close();
+    return {
+      spec,
+      results: [],
+      startupError: new Error(`driver claims layers [${layers.join(', ')}], not 'core'`),
+    };
+  }
+
+  for (const check of checks) {
+    const tester = makeTester(driver);
+    const started = Date.now();
+    try {
+      // Each check starts from a clean runtime. Sharing state between checks would
+      // make a failure depend on the order they happened to run in.
+      await driver.request('reset', {}, 10_000);
+      await check.run(tester);
+      results.push({ check, ok: true, ms: Date.now() - started });
+    } catch (error) {
+      results.push({ check, ok: false, ms: Date.now() - started, error });
+    }
+  }
+
+  await driver.close();
+  return { spec, results, stderrTail: driver.stderrTail };
+}
+
+function report(run, options) {
+  const lines = [];
+  const failed = run.results.filter((r) => !r.ok);
+
+  lines.push(`\n${run.spec.name}`);
+  lines.push(`  driver  ${run.spec.command} ${(run.spec.args ?? []).join(' ')}`);
+
+  if (run.startupError) {
+    lines.push(`  \x1b[31mFAILED TO START\x1b[0m ${run.startupError.message}`);
+    if (run.stderrTail) lines.push(`  stderr:\n${indent(run.stderrTail.trim())}`);
+    return { text: lines.join('\n'), failed: 1, total: 0 };
+  }
+
+  lines.push(`  layers  ${(run.spec.layers ?? ['core']).join(', ')}`);
+
+  for (const result of run.results) {
+    if (result.ok && !options.verbose) continue;
+    const mark = result.ok ? '\x1b[32m✓\x1b[0m' : '\x1b[31m✗\x1b[0m';
+    lines.push(`  ${mark} ${result.check.id.padEnd(14)} ${result.check.rule}`);
+    if (!result.ok) {
+      lines.push(`      ${indent(String(result.error?.message ?? result.error))}`);
+    }
+  }
+
+  const summary = failed.length === 0
+    ? `\x1b[32m${run.results.length}/${run.results.length} checks passed\x1b[0m`
+    : `\x1b[31m${failed.length}/${run.results.length} checks failed\x1b[0m`;
+  if (!options.verbose || failed.length > 0) lines.push(`  ${summary}`);
+
+  return { text: lines.join('\n'), failed: failed.length, total: run.results.length };
+}
+
+const indent = (text) => text.split('\n').map((line) => `      ${line}`).join('\n');
+
+async function main() {
+  const options = parseArgs(process.argv.slice(2));
+
+  if (options.list) {
+    for (const check of CORE_CHECKS) {
+      process.stdout.write(`${check.id.padEnd(16)} ${check.rule}\n`);
+    }
+    process.stdout.write(`\n${CORE_CHECKS.length} checks\n`);
+    return 0;
+  }
+
+  const specs = options.driver
+    ? [{ name: options.driver, command: options.driver.split(' ')[0], args: options.driver.split(' ').slice(1), cwd: options.cwd ?? ROOT }]
+    : BUILT_IN;
+
+  const runs = [];
+  for (const spec of specs) {
+    process.stdout.write(`\n\x1b[1mconformance\x1b[0m  ${spec.name}\n`);
+    const run = await runDriver(spec, options);
+    runs.push(run);
+  }
+
+  let totalFailed = 0;
+  let totalChecks = 0;
+  const output = [];
+  for (const run of runs) {
+    const { text, failed, total } = report(run, options);
+    output.push(text);
+    totalFailed += failed;
+    totalChecks += total;
+  }
+
+  if (options.json) {
+    process.stdout.write(`${JSON.stringify(runs.map((run) => ({
+      driver: run.spec.name,
+      checks: run.results.map((r) => ({
+        id: r.check.id,
+        rule: r.check.rule,
+        ok: r.ok,
+        error: r.ok ? undefined : String(r.error?.message ?? r.error),
+      })),
+    })), null, 2)}\n`);
+  } else {
+    process.stdout.write(`${output.join('\n')}\n`);
+  }
+
+  process.stdout.write(
+    totalFailed === 0
+      ? `\n\x1b[32m${totalChecks} checks passed across ${runs.length} driver(s)\x1b[0m\n`
+      : `\n\x1b[31m${totalFailed} of ${totalChecks} checks failed\x1b[0m\n`,
+  );
+
+  return totalFailed === 0 ? 0 : 1;
+}
+
+main().then(
+  (code) => {
+    process.exitCode = code;
+  },
+  (error) => {
+    process.stderr.write(`harness error: ${String(error?.stack ?? error)}\n`);
+    process.exitCode = 1;
+  },
+);
