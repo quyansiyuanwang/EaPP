@@ -16,6 +16,7 @@
 |---|---|
 | 搞懂这个协议在说什么 | [概念：三层心智模型](./guides/concepts.md) |
 | 跑起来看看 | [快速上手](./guides/getting-started.md) |
+| 看能跑的例子 | [示例索引](../examples/README.md) |
 | 写一个插件 | [指南：写一个插件](./guides/write-a-plugin.md) |
 | 换一种传输 | [指南：实现一个 Transport](./guides/write-a-transport.md) |
 | 用别的语言实现这个协议 | [指南：用另一种语言实现 EaPP](./guides/implement-in-another-language.md) |
@@ -123,4 +124,7 @@ docs/
 ├── spec/          规范性：冻结的协议文本
 ├── analysis/      非规范性：设计与评审记录
 └── CONFORMANCE.md 一致性声明
+
+examples/          可运行且自检的示例；pnpm run examples
+packages/          参考实现；tests/ 是一致性套件
 ```

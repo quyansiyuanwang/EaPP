@@ -17,7 +17,10 @@
     "check:invariants": "node tools/check-invariants.mjs",
     "check:docs": "node tools/check-docs.mjs",
     "demo": "tsx examples/hello-plugins/index.ts",
-    "verify": "pnpm run typecheck && pnpm run test && pnpm run check:invariants && pnpm run check:docs"
+    "example:first": "tsx examples/my-first-plugin/index.ts",
+    "example:queue": "tsx examples/job-queue/index.ts",
+    "examples": "pnpm run demo && pnpm run example:first && pnpm run example:queue",
+    "verify": "pnpm run typecheck && pnpm run test && pnpm run examples && pnpm run check:invariants && pnpm run check:docs"
   },
   "devDependencies": {
     "@types/node": "^22.20.3",

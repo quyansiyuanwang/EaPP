@@ -4,7 +4,8 @@
  *
  * The reference pages cross-link heavily and are written per layer, so a renamed file or a
  * typo silently produces a dead link. Markdown gives no compile-time help, so this walks
- * every document and verifies that each relative link resolves to something on disk.
+ * every document — under `docs/` and `examples/` — and verifies that each relative link
+ * resolves to something on disk.
  *
  * Deliberately narrow: it checks RELATIVE links only. External URLs are not fetched —
  * a network check would make `pnpm run verify` fail for reasons unrelated to the change.
@@ -33,7 +34,13 @@ function walk(dir, out = []) {
   return out;
 }
 
-const roots = ['README.md', 'CONTRIBUTING.md', 'GOVERNANCE.md', 'CHANGELOG.md', 'docs']
+/**
+ * Every .md file in the repository is in scope, not just `docs/`. A document that lives
+ * outside the scanned set is a document whose links are never checked — and the examples
+ * index cross-links back into `docs/`, so leaving it out would have made the gate quietly
+ * narrower than the documentation surface it claims to cover.
+ */
+const roots = ['README.md', 'CONTRIBUTING.md', 'GOVERNANCE.md', 'CHANGELOG.md', 'docs', 'examples']
   .map((p) => path.join(ROOT, p))
   .filter((p) => existsSync(p));
 

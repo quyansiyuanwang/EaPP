@@ -17,6 +17,7 @@
     "packages/*/test/**/*.ts",
     "packages/transport/*/test/**/*.ts",
     "tests/**/*.ts",
+    "examples/**/*.ts",
     "vitest.config.ts"
   ]
 }
