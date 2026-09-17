@@ -7,7 +7,7 @@ import { EappError } from '@eapp/core';
  * (mode / delivery / state) belongs to this layer and MUST NOT leak downwards.
  *
  * Note that v3.1 §2.1 already lists `'state'` as a ChannelMode. No later layer extends
- * this union; errata E1-2 exists because a draft claimed otherwise.
+ * this union.
  */
 
 export type ChannelMode = 'request' | 'event' | 'stream' | 'state';

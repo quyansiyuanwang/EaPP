@@ -26,9 +26,9 @@ import type { Subscription, SubscriptionSource } from './subscription.js';
 /**
  * Channel creation — EaPP v3.1.0 §11 (added by errata E1-5).
  *
- * The draft stated "a Channel MUST be derived from a Binding" but never gave an
- * executable path, which is how a later draft ended up constructing a state channel
- * from a bare binding string with no way to reach it from `core.bind()`.
+ * Stating "a Channel MUST be derived from a Binding" is not enough on its own. Without
+ * an executable path a state channel ends up built from a bare binding string, with no
+ * way to reach it from `core.bind()`.
  *
  * The three-step path is:
  *

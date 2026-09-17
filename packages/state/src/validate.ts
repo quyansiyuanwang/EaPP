@@ -4,9 +4,9 @@ import type { StatePattern, StateUpdate } from './types.js';
 /**
  * Validation — EaPP v3.2.0 §5.3 and §8.
  *
- * The r2 draft validated patterns by property NAME only, so `{ all: false }` and
- * `{ key: '' }` passed a rule that carries its own error code. Both are rejected here,
- * because a validator that cannot reject is not a validator.
+ * Validating patterns by property NAME only lets `{ all: false }` and `{ key: '' }`
+ * pass a rule that carries its own error code. Both are rejected here, because a
+ * validator that cannot reject is not a validator.
  */
 
 export function validatePattern(pattern: StatePattern): void {

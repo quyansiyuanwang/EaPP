@@ -3,8 +3,10 @@ import { LocalAck, type AckContext } from './ack.js';
 import { EARLIEST, LATEST, isAnchorLiteral, maxCursor, type Cursor, type CursorAnchor } from './cursor.js';
 
 /**
- * Subscription — EaPP v3.1.0 §7 (added by errata E1-6; the draft required
- * `StateWatcher extends Subscription` without ever defining `Subscription`).
+ * Subscription — EaPP v3.1.0 §7.
+ *
+ * `StateWatcher` extends `Subscription`, so this type has to exist before the state
+ * layer can describe its own watcher.
  *
  * This class is shared by the `stream` and `state` modes. It owns the cursor, the
  * suspend/resume gate and the delivery loop; the mode-specific part is supplied as a
@@ -107,8 +109,8 @@ export class TransportSubscription<T> implements Subscription<T> {
   /**
    * SUB-9 / spec §6.2 rule 5: the anchor is resolved EAGERLY, inside this factory, so
    * that `subscription.cursor` is already concrete before the caller can observe it.
-   * The draft instead left it `undefined` and deferred to the first iteration, which
-   * made its own SW-1 assertion (`cursor` toBeDefined) impossible to satisfy.
+   * Leaving it `undefined` and deferring to the first iteration would make the SW-1
+   * assertion (`cursor` toBeDefined) impossible to satisfy.
    */
   static async create<T>(
     channel: string,

@@ -4,10 +4,10 @@ import type { CursorAnchor, SubscriptionMode } from '@eapp/interaction';
 /**
  * State Mode ontology — EaPP v3.2.0 §2.
  *
- * The single most important decision in this file is what `Revision` IS. In the r2
- * draft it was a per-cell counter, which could not serve as an observation position and
- * made the whole watcher contract unimplementable. Here it is the **position of the
- * write in the channel's state log**, which is the same thing v3.1 calls a `Cursor`
+ * The single most important decision in this file is what `Revision` IS. Read as a
+ * per-cell counter it cannot serve as an observation position, which makes the whole
+ * watcher contract unimplementable. Here it is the **position of the write in the
+ * channel's state log**, which is the same thing v3.1 calls a `Cursor`
  * (§6.1: "the position a consumer has acknowledged up to", globally ordered per
  * Channel). Revision and Cursor are therefore the same domain, and REV-7 stops being an
  * exception and becomes a consequence of CR-1.

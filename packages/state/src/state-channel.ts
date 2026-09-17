@@ -88,7 +88,7 @@ export class StateChannelImpl implements StateChannel {
     const actor = explicit ?? this.#config.owner;
     if (!actor) {
       // SC-5 cannot be satisfied without an identity, so this is a hard failure rather
-      // than the fabricated `{domain:'x',id:'x',instance:'x'}` the r2 draft resorted to.
+      // than fabricating a placeholder such as `{domain:'x',id:'x',instance:'x'}`.
       throw new EappError('EAPP_STATE_ACTOR_REQUIRED', 'no actor supplied and channel has no owner');
     }
     return actor;
@@ -127,8 +127,8 @@ export class StateChannelImpl implements StateChannel {
     }
     assertStateCapability(this.#transport, 'revision');
     const actor = this.#actor(options?.actor);
-    // A first-class transport primitive: routing this through `set({deleted:true})` is
-    // what made EAPP_STATE_KEY_NOT_FOUND unreachable in the r2 draft.
+    // A first-class transport primitive: routing this through `set({deleted:true})`
+    // would make EAPP_STATE_KEY_NOT_FOUND unreachable.
     return this.#transport.deleteStateWithCAS(this.#channel.id, key, expectedRevision, actor);
   }
 

@@ -2,8 +2,8 @@
 
 本文件记录三个冻结层的版本、来源与全部修订。
 `docs/spec/` 下的文档是**规范性**的。
-三份草案原文**不在工作树中**，保留在提交 `9b78d40` 里 —— 引用它们的形式是
-`git show "9b78d40:tmp/draft/<文件名>"`。
+
+先行草案（Draft）不构成规范的一部分，其内容已全部并入下列冻结文本。
 
 ---
 
@@ -104,8 +104,8 @@ IX-5    "ChannelMode MAY be extended to include 'state'" —— 谎言：v3.1 §
 | E1-1 | `StateMessage.revision` 由 `number` 改为 `Revision`（与 `Cursor` 同域） |
 | E1-2 | 删除"v3.2 扩展出第四种 ChannelMode"的表述；`'state'` 是 v3.1 既有成员 |
 | E1-3 | 任何消费端事件类型 MUST 同时提供 `ack()` 与 `nack()` |
-| E1-4 | cursor 推进以草案 §6.4 为准：显式 ack 更靠后的位置允许放弃中间项 |
-| E1-5 | 补齐 `Binding → Channel` 的创建路径（本文 §11） |
+| E1-4 | cursor 推进规则纳入 §6.4：显式 ack 更靠后的位置允许放弃中间项 |
+| E1-5 | 补齐 `Binding → Channel` 的创建路径（本文 §12） |
 | E1-6 | 新增 `Subscription` / `SubscriptionMode` / `SubscriptionState`（本文 §7） |
 | E1-7 | `durabilityBoundary` 补入 `TransportCapabilities` |
 | E1-8 | 目录布局由 `reference/` 归一为 `packages/`（§19.1 用的是 SHOULD，允许偏离） |

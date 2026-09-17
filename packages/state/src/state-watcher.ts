@@ -16,8 +16,8 @@ import { validatePattern } from './validate.js';
  * StateWatcher — EaPP v3.2.0 §7.
  *
  * A StateWatcher IS a v3.1 Subscription (SW-1), so it must expose the full AckContext:
- * both `ack()` and `nack()`. The r2 draft's event type carried only `ack()`, which meant
- * it was not a valid v3.1 AckContext at all and AK-3/AK-4 were unsatisfiable.
+ * both `ack()` and `nack()`. An event type carrying only `ack()` is not a valid v3.1
+ * AckContext, and AK-3 / AK-4 become unsatisfiable.
  */
 
 export interface StateUpdateEvent extends AckContext {

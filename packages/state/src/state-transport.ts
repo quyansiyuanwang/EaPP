@@ -15,7 +15,7 @@ import type {
  * Extends the v3.1 Transport rather than replacing it (IX-4 / TS-7): a state transport
  * is still a transport, it just also knows how to store cells and to order revisions.
  *
- * Two shape decisions worth stating explicitly, because the r2 draft got both wrong:
+ * Two shape decisions worth stating explicitly, because both are easy to get wrong:
  *
  *  - `readChangesAfter` returns a **change stream**, not `StateCell[]`. A post-image
  *    array cannot express two writes to the same key, so the intermediate change is lost

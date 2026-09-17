@@ -361,8 +361,8 @@ export class MemoryTransport implements StateTransport {
 
   /**
    * §6.2 edge-case table. This cannot be expressed through `set` because the transport
-   * has to distinguish "delete" from "create", which is exactly what the r2 draft lost
-   * when it implemented delete as `set({deleted:true})`.
+   * has to distinguish "delete" from "create", and implementing delete as
+   * `set({deleted:true})` loses that distinction.
    */
   async deleteStateWithCAS(
     channel: string,
