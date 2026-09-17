@@ -73,6 +73,28 @@ async function pullOne(t, subscription) {
   return result.item;
 }
 
+/**
+ * Refusal with *some* declared code, when the spec requires the operation to fail but
+ * does not say which code carries it.
+ *
+ * Pinning the implementation's choice would turn a spec requirement into a shape
+ * requirement and fail every implementation that chose differently — the mistake `B-6`
+ * exists to avoid. Used for `CG-1` and `CG-8`, where the spec states the requirement
+ * (names are unique; a join names an existing group) and says nothing about the code.
+ */
+async function refusedSomehow(t, op, args, what) {
+  try {
+    await t.driver.request(op, args);
+  } catch (error) {
+    t.assert(
+      typeof error.code === 'string' && error.code.startsWith('EAPP_'),
+      `${what}: the refusal must carry a declared EAPP_ code, got ${JSON.stringify(error.code)}`,
+    );
+    return;
+  }
+  throw new Error(`${what}: expected a refusal, but the operation succeeded`);
+}
+
 export const INTERACTION_CHECKS = [
   // ---------------------------------------------------------------- Channel (v3.1 §2.3)
   {
@@ -517,19 +539,12 @@ export const INTERACTION_CHECKS = [
       const { channel } = await boundChannel(t);
       await t.driver.request('group.open', { channel: channel.id, name: 'workers' });
       // The spec requires uniqueness; it does not say which code carries the refusal,
-      // and the interaction error model has no dedicated one. Pinning an
-      // implementation's choice here would turn a spec requirement into a shape
-      // requirement — the same mistake `B-6` in the core checks was written to avoid.
-      let refused = null;
-      try {
-        await t.driver.request('group.open', { channel: channel.id, name: 'workers' });
-      } catch (error) {
-        refused = error;
-      }
-      t.assert(refused !== null, 'opening a second group with the same name must be refused');
-      t.assert(
-        typeof refused.code === 'string' && refused.code.startsWith('EAPP_'),
-        `the refusal must carry a declared EAPP_ code, got ${JSON.stringify(refused.code)}`,
+      // and the interaction error model has no dedicated one.
+      await refusedSomehow(
+        t,
+        'group.open',
+        { channel: channel.id, name: 'workers' },
+        'opening a second group with the same name',
       );
     },
   },
@@ -637,10 +652,13 @@ export const INTERACTION_CHECKS = [
       // the name, this covers whether it names anything.
       await t.driver.request('group.open', { channel: channel.id, name: 'alpha' });
       await openSub(t, channel, { mode: 'group', group: 'workers' }); // resolves
-      await t.driver.refused(
+      // Joining something that is not a group on this Channel cannot satisfy CG-8, so it
+      // must fail. Which code says so is the implementation's to choose.
+      await refusedSomehow(
+        t,
         'subscription.open',
         { channel: channel.id, options: { mode: 'group', group: 'no-such-group' } },
-        'EAPP_SUBSCRIPTION_INVALID',
+        'joining a group that does not exist',
       );
     },
   },
