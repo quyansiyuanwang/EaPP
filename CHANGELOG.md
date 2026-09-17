@@ -40,6 +40,13 @@ v3.0 §18.1 规定**新增不变量**属于 `3.x.0`。C-7 新增了一条不变�
   一个 provider、一个调用方。
 - `examples/` 增至五个，各自在结尾校验结论，并接入 `pnpm run verify`。
 - `tools/check-docs.mjs` 增加正文语域检查（`docs/STYLE.md` §5）。
+- **driver 协议与 harness 扩展到 Interaction 层。** 检查项按层组织，driver 只跑它
+  在 hello 行里声明的层 —— 只实现 Composition Core 的实现不会被 Interaction 层的
+  检查判为失败，因为它并没有声明支持那一层。harness 现在报告每层的覆盖情况。
+- `tools/check-duplicates.mjs` —— 同一类型在多个文档中被复述时，比对**两边都有**的
+  成员类型是否一致。参考页复述规范类型是为了省去读者翻页，规范一改，复述就成了假话。
+- `tools/check-counts.mjs` —— 文档中与不变量、harness 检查项相关的数字，与实际算出的值比对。
+- `rfcs/` —— 改变语义的规范变更提案，及其 §18.3 要求的评审落点。
 
 ### 修复
 
@@ -58,6 +65,11 @@ v3.0 §18.1 规定**新增不变量**属于 `3.x.0`。C-7 新增了一条不变�
 - **`Criteria.version` 按精确值匹配。** §8.1 声明其为 SemVer range，
   `find({version: '^1.0.0'})` 此前静默返回空集。
 - **`EappRuntimeOptions.transport` 声明为具体类。** 自定义 Transport 无法在不强转的情况下传入。
+- **`Channel.create` 接受规范之外的 delivery 取值。** `assertDeliveryAllowed` 只检查 mode
+  与 delivery 是否**相容**，从不检查 delivery 是否为 `DL-1` 声明的两个值之一，于是
+  `delivery: 'exactly-once'` 被接受并挂在 Channel 上 —— 而 `DL-2` 要求它 MUST NOT
+  出现在 Core。`mode` 当时已有校验，`delivery` 没有。**由黑盒 harness 发现**，
+  单元测试传的是类型允许的值，永远碰不到它。
 
 ### 一致性
 
