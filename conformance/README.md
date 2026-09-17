@@ -2,7 +2,9 @@
 
 > **非规范性。** 这里是**工具**，不是协议的一部分。
 
-这个目录回答一个问题：**"EaPP 是协议，不是库"—— 怎么证明？**
+本目录提供**语言中立的规范验证工具**。它按一份固定的测试接口检查一个实现，
+自身不引用任何 EaPP 实现 —— 因此"实现了 EaPP"这一声明可以被外部检验，
+而不必依赖声明方自己的一致性套件。
 
 ```bash
 pnpm run conformance:external
@@ -69,7 +71,7 @@ fixture，driver 协议目前没有暴露它。
 | C-5 CapabilityRef MUST include version | 每个 `bind` 都带 version，所以"少了会怎样"需要一条协议里不存在的请求形状 |
 | P-4 Capability set MAY change via explicit declaration | `plugin.register` 是唯一的声明入口，没有"重新声明"的操作 |
 | B-7 `capability.plugin` MUST equal `from` | 这是内部表示的一致性要求。可以让 driver 把 `capability.plugin` 吐出来检查，但那就把一条内部形状变成了跨实现要求 |
-| **B-8 uniqueness check + creation MUST be atomic** | **这是最值得注意的一条缺口**：外部 driver 是串行的（stdio 上一条请求一条响应），所以并发 `bind` 根本走不到。参考实现有一个 `go test`/单元测试专门打它（`packages/core`），但**跨实现的检查做不到** —— 要给 driver 协议加一个"并发发起 N 个请求"的形状才行 |
+| **B-8 uniqueness check + creation MUST be atomic** | 外部 driver 是串行的（stdio 上一条请求一条响应），所以并发 `bind` 根本走不到。参考实现有一个 `go test`/单元测试专门打它（`packages/core`），但**跨实现的检查做不到** —— 要给 driver 协议加一个"并发发起 N 个请求"的形状才行 |
 | B-9 PENDING Binding MUST NOT be externally observable | 中间状态按定义观察不到 |
 | D-4 Discovery MAY cache | MAY 不是 MUST，缓存与否是实现的自由；参考实现有 `cacheStats()`，但那不是规范形状 |
 | 未读的 watch 队列无界增长 | `watch` 的队列是每条 watcher 一个、不设上限的。消费者停止迭代却又不 `close()` 时，事件会一直堆积。规范没有规定丢弃策略，所以**这里也不发明一条** —— 那会让别的实现在一条无从检查的规则下被静默丢事件。关闭是消费者的责任 |

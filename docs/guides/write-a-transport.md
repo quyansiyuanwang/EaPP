@@ -745,7 +745,6 @@ const subscription = await TransportSubscription.create('orders', {}, {
 
 （id 与位置按创建顺序递增，字面值会变。）
 
-三处值得注意：
 
 - 拿着同一个 CAS token 的第二次写入被拒绝（`EAPP_REVISION_CONFLICT`，`retryable=true`），
   而 watcher 的 `cursor` **就是**那次写入的 revision —— 因为 Revision 与 Cursor

@@ -115,6 +115,12 @@ const REGISTER_RULES = [
   { pattern: /说白了|就是说吧|别用|别把|别当|别以为|这不是吗/g, why: '口语化措辞' },
   { pattern: /说到底|归根结底就是|才算数|这件事本身/g, why: '修辞性收束' },
   { pattern: /^一句话[：:]|一句话版本/g, why: '修辞性收束' },
+  {
+    // A tricolon of negations defines by contrast, which makes the reader derive the
+    // positive statement from three things it is not. State the classification.
+    pattern: /不是[^，。；]{0,10}，不是[^，。；]{0,10}，不是/,
+    why: '否定式排比（STYLE §5：直接陈述，不用修辞）',
+  },
 ];
 
 const register = [];

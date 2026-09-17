@@ -164,7 +164,7 @@ EAPP_SUBSCRIPTION_INVALID  Subscription 构造参数非法
 | E-G | v3.2 | **同类缺陷，同一轮被闸门扫出**：`SU-4`、`CF-1`…`CF-5`、`IX-1`…`IX-4`、`IX-6` 共 10 条只出现在 §14 的汇总里，正文从未陈述。v3.2 甚至没有 ConflictPolicy 这一节 | 补 `§5.4` 的 `SU-4`、新增 `§10.5 冲突策略`（CF）、新增 `§15.1 层级隔离`（IX） | 恢复丢失的规范性内容 |
 | E-H | v3.1 | §6.2 只说了"日志压缩到无法定位 `'earliest'` 时返回 `EAPP_CURSOR_TOO_OLD`"，**没有规定已被删除的具体 Cursor 该怎么办** —— 而这正是会丢消息的那一半 | 新增 §6.2 规则 7：具体 Cursor 早于保留起点时 MUST 返回 `EAPP_CURSOR_TOO_OLD`，**MUST NOT 被静默替换为保留起点**；并补上 floor 的精确语义 | 新增规则（3.x 内允许，`EAPP_CURSOR_TOO_OLD` 此前无处可产生） |
 | E-I | v3.0 | §4.1 定义了 `Constraint { kind, value }`，§8.1 允许用 `Criteria.constraints` 筛选，但**从未说过"匹配"指什么**。两个实现可以各自理解成子集 / 范围 / 谓词，而都自称合规 | 新增 **C-7**：匹配 MUST 是「`kind` 相等 **且** `value` 结构相等」；更丰富的匹配属于 Extension | 新增不变量（3.x 内允许；此前 §15 的 C7 合规等级无对应规则） |
-| E-J | v3.0 | §19.3 冻结的 `ConformanceClaim` 把 `eappVersion` 钉成字面量 `'3.0.0'`、把 `levels` 限定为 `C1`–`C8`。于是 **v3.1 / v3.2 的实现做不出合法声明** —— 而 v3.1 §15 恰恰定义了 `I1`–`I7` 并要求实现声明它们。声明接口由最底层拥有，却描述不了它上面的两层 | `eappVersion` 改为 `string`；`levels` 扩充为 `C1`–`C8` ∪ `I1`–`I7`，并明确 v3.2 不定义等级前缀（其覆盖度由不变量计数表达） | 修正规范自身的矛盾（补全，不新增语义） |
+| E-J | v3.0 | §19.3 冻结的 `ConformanceClaim` 把 `eappVersion` 钉成字面量 `'3.0.0'`、把 `levels` 限定为 `C1`–`C8`。于是 **v3.1 / v3.2 的实现做不出合法声明** —— 而 v3.1 §15 定义了 `I1`–`I7` 并要求实现声明它们。声明接口由最底层拥有，却描述不了它上面的两层 | `eappVersion` 改为 `string`；`levels` 扩充为 `C1`–`C8` ∪ `I1`–`I7`，并明确 v3.2 不定义等级前缀（其覆盖度由不变量计数表达） | 修正规范自身的矛盾（补全，不新增语义） |
 | E-K | v3.2 | §12.4 的能力矩阵把 Socket 一行写成状态能力全 ❌，而 `@eapp/transport-socket` 五项全 ✅、`stateConsistency: 'strong'`、`durabilityBoundary: 'machine'`。**规范与参考实现直接矛盾**：按矩阵实现 Socket 的读者会得到一个与仓库交付物不同的东西，且无从判断谁对 | 矩阵改述为"自洽的组合形状，不列举实现"，并为 Socket 给出两行（仅承载消息 / broker 持有状态）。传输介质不决定能力，两种都合法 | 修正规范自身的矛盾（补全，不新增语义） |
 
 **E-A 与 E-G 是同一类缺陷**，它们暴露了原闸门的盲区：
