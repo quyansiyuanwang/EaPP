@@ -125,7 +125,11 @@ async function runDriver(spec, options) {
       debug: options.debug,
     });
   } catch (error) {
-    return { spec, results, startupError: error };
+    // `Driver.start` throws with the driver's stderr appended, but the handle is gone by
+    // then. Separating the two makes the message readable and the tail reportable in the
+    // same shape a mid-run crash uses.
+    const [message, ...rest] = String(error?.message ?? error).split('\n');
+    return { spec, results, startupError: { message }, stderr: rest.join('\n'), stderrTail: rest.join('\n') };
   }
 
   const declared = driver.hello.layers ?? [];
@@ -180,7 +184,9 @@ function report(run, options) {
   if (run.startupError) {
     lines.push(`  \x1b[31mFAILED TO START\x1b[0m ${run.startupError.message}`);
     if (run.stderrTail) lines.push(`  stderr:\n${indent(run.stderrTail.trim())}`);
-    return { text: lines.join('\n'), failed: 1, total: 0 };
+    // Not "1 of 0 failed": no check ran, and reporting a count of zero checks as a
+    // failure reads as a check having failed.
+    return { text: lines.join('\n'), failed: 0, total: 0, startupFailed: true };
   }
 
   lines.push(`  layers  ${(run.layers ?? run.spec.layers ?? []).join(', ')}`);
@@ -239,12 +245,17 @@ async function main() {
 
   let totalFailed = 0;
   let totalChecks = 0;
+  let startupFailures = 0;
   const output = [];
   for (const run of runs) {
-    const { text, failed, total } = report(run, options);
+    const { text, failed, total, startupFailed } = report(run, options);
     output.push(text);
     totalFailed += failed;
     totalChecks += total;
+    // A driver that never started ran no checks, so it contributes 0 to the check
+    // counts — but it must still fail the run. Counting it as a check failure would
+    // misreport what happened; not counting it at all would report success.
+    if (startupFailed) startupFailures += 1;
   }
 
   if (options.json) {
@@ -262,12 +273,12 @@ async function main() {
   }
 
   process.stdout.write(
-    totalFailed === 0
+    totalFailed === 0 && startupFailures === 0
       ? `\n\x1b[32m${totalChecks} checks passed across ${runs.length} driver(s)\x1b[0m\n`
-      : `\n\x1b[31m${totalFailed} of ${totalChecks} checks failed\x1b[0m\n`,
+      : `\n\x1b[31m${totalFailed} of ${totalChecks} checks failed${startupFailures > 0 ? `, and ${startupFailures} driver(s) did not start` : ''}\x1b[0m\n`,
   );
 
-  return totalFailed === 0 ? 0 : 1;
+  return totalFailed === 0 && startupFailures === 0 ? 0 : 1;
 }
 
 main().then(
