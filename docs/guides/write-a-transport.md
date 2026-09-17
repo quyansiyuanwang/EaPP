@@ -211,7 +211,7 @@ get on an empty channel -> null
 set with supportsStateRevision=false -> EAPP_STATE_UNSUPPORTED
 ```
 
-注意第一行：**读仍然可以工作。** 这正是"能力闸门"该有的样子 —— 关掉的是不可能正确实现的操作，
+注意第一行：**读仍然可以工作。** 能力闸门的形态即如此 —— 关掉的是不可能正确实现的操作，
 不是整个能力。
 
 ---
@@ -844,7 +844,7 @@ groupStore(context: {
 ```
 
 Interaction Layer 在存在时使用它。**不提供的时候它不会退回到本地认领表** ——
-那正是静默降级的形状：`durabilityBoundary` 比进程宽、却又没有共享组状态时，
+那是静默降级的形态：`durabilityBoundary` 比进程宽、却又没有共享组状态时，
 `openConsumerGroup()` 直接抛 `EAPP_UNSUPPORTED`。
 
 这条规则值得记成一句话：**每个"谁拥有什么"的判断，都必须只有一个做判断的地方，

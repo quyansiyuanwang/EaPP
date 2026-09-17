@@ -219,7 +219,7 @@ pnpm run demo
 
 中间那段是演示的核心：三个写者拿着**同一个** CAS token（`v2`）同时写同一个 key。
 CAS 让恰好一个成功，另外两个拿到 `EAPP_REVISION_CONFLICT`（`retryable=true`，
-`RETRYABLE_CODES` 里唯一一个默认可重试的码）。这正是"没有全序就不能做 CAS"的原因 ——
+`RETRYABLE_CODES` 里唯一一个默认可重试的码）。全序是 CAS 成立的前提；
 允许"最终一致但号称能 CAS"的存储，等于允许**静默丢更新**。
 
 最后两行是 [`StateWatcher`](../reference/state-watcher.md)：它以 `cursor='latest'` 开始观察，
