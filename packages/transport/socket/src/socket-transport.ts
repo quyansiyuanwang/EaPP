@@ -1,7 +1,13 @@
 import { connect, type Socket } from 'node:net';
 
 import { EappError, type Identity } from '@eapp/core';
-import type { Cursor, CursorAnchor, Pattern, TransportMessage } from '@eapp/interaction';
+import type {
+  Cursor,
+  CursorAnchor,
+  GroupStore,
+  Pattern,
+  TransportMessage,
+} from '@eapp/interaction';
 import type {
   ExpectedRevision,
   Revision,
@@ -13,6 +19,7 @@ import type {
   StateUpdate,
 } from '@eapp/state';
 
+import { RemoteGroupStore } from './remote-group-store.js';
 import {
   FrameDecoder,
   carriesBrokerPrefix,
@@ -108,6 +115,31 @@ export class SocketTransport implements StateTransport {
 
   get isClosed(): boolean {
     return this.#closed;
+  }
+
+  /**
+   * A transport that shares messages between processes must also be able to share
+   * the bookkeeping that makes competing consumption correct — see `GroupStore`.
+   * Declaring it here is what turns the interaction layer's refusal into a working
+   * `ConsumerGroup`.
+   */
+  readonly sharesGroupState = true;
+
+  groupStore(context: {
+    channel: string;
+    name: string;
+    claimTtlMs: number;
+    initialCursor: Cursor;
+  }): GroupStore {
+    return new RemoteGroupStore({
+      ...context,
+      request: (op, args) => this.request({ op, ...args }),
+    });
+  }
+
+  /** Internal: the typed Transport surface does not include group operations. */
+  request(payload: Omit<WireRequest, 'id'>, timeoutMs = this.#timeoutMs): Promise<unknown> {
+    return this.#request(payload, timeoutMs);
   }
 
   // ------------------------------------------------------------ request plumbing

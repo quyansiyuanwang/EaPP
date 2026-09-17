@@ -1,9 +1,11 @@
 import { createServer, type Server, type Socket } from 'node:net';
 
 import { EappError, type Identity } from '@eapp/core';
+import type { GroupView } from '@eapp/interaction';
 import { MemoryTransport } from '@eapp/transport-memory';
 import type { StateChange, StatePattern, StateTransportCapabilities } from '@eapp/state';
 
+import { GroupRegistry } from './group-registry.js';
 import {
   FrameDecoder,
   WIRE_VERSION,
@@ -12,6 +14,7 @@ import {
   isResponse,
   type BrokerHello,
   type WireError,
+  type WireGroupView,
   type WireRequest,
   type WireStateChange,
 } from './wire.js';
@@ -58,6 +61,9 @@ export class SocketBroker {
   #server: Server;
   #sockets = new Set<Socket>();
   #held = new Map<number, Held>();
+  /** socket -> the group holders it registered, so a dropped connection frees them. */
+  #holders = new Map<Socket, Set<string>>();
+  readonly #groups: GroupRegistry;
   #port: number;
   #host: string;
   #closed = false;
@@ -68,6 +74,7 @@ export class SocketBroker {
     this.#server = server;
     this.#port = port;
     this.#host = host;
+    this.#groups = new GroupRegistry(id);
     this.#server.on('connection', (socket) => this.#attach(socket));
   }
 
@@ -133,7 +140,9 @@ export class SocketBroker {
 
     for (const socket of this.#sockets) socket.destroy();
     this.#sockets.clear();
+    this.#holders.clear();
 
+    await this.#groups.close();
     await new Promise<void>((resolve) => this.#server.close(() => resolve()));
     await this.#transport.close();
   }
@@ -142,6 +151,7 @@ export class SocketBroker {
 
   #attach(socket: Socket): void {
     this.#sockets.add(socket);
+    this.#holders.set(socket, new Set());
     socket.setNoDelay(true);
     const decoder = new FrameDecoder();
 
@@ -171,6 +181,12 @@ export class SocketBroker {
         held.controller.abort();
         this.#held.delete(id);
       }
+      // A client that dies mid-work is exactly CG-5's case, one process further
+      // out: it will never ack, so waiting for the TTL would idle the group for
+      // no reason.
+      const holders = this.#holders.get(socket);
+      this.#holders.delete(socket);
+      for (const holder of holders ?? []) void this.#groups.releaseHolder(holder);
     };
     socket.on('close', drop);
     socket.on('error', drop);
@@ -287,6 +303,51 @@ export class SocketBroker {
           request.actor ?? ANONYMOUS,
         );
 
+      // ------------------------------------------------------ ConsumerGroup §8
+      //
+      // The claim table lives here because the messages do. CG-3 needs one place
+      // where "this position is taken" is decided, and a broker is that place.
+
+      case 'groupJoin': {
+        const { holder, view } = await this.#groups.join(channel, request.name ?? '', {
+          initialCursor: request.initialCursor ?? '',
+          ttlMs: request.ttlMs ?? 30_000,
+          ...(request.holder === undefined ? {} : { holder: request.holder }),
+        });
+        // Remembered per connection so a client that dies without leaving still
+        // releases its work — the wire equivalent of CG-5.
+        this.#holders.get(socket)?.add(holder);
+        return { holder, view: toWireView(view) };
+      }
+
+      case 'groupLeave':
+        await this.#groups.leave(channel, request.name ?? '', request.holder ?? '');
+        this.#holders.get(socket)?.delete(request.holder ?? '');
+        return null;
+
+      case 'groupClaim':
+        return this.#groups.claim(
+          channel,
+          request.name ?? '',
+          request.holder ?? '',
+          request.cursors ?? [],
+        );
+
+      case 'groupSettle': {
+        const view = await this.#groups.settle(channel, request.name ?? '', request.cursor ?? '');
+        return view ? toWireView(view) : null;
+      }
+
+      case 'groupRelease': {
+        const view = await this.#groups.release(channel, request.name ?? '', request.cursor ?? '');
+        return view ? toWireView(view) : null;
+      }
+
+      case 'groupView': {
+        const view = await this.#groups.view(channel, request.name ?? '');
+        return view ? toWireView(view) : null;
+      }
+
       default:
         throw new EappError('EAPP_UNSUPPORTED', `unknown wire operation '${request.op}'`);
     }
@@ -330,5 +391,16 @@ function toWireChange(change: StateChange): WireStateChange {
     type: change.type,
     hasValue,
     ...(hasValue ? { value: change.value } : {}),
+  };
+}
+
+function toWireView(view: GroupView): WireGroupView {
+  return {
+    cursor: view.cursor,
+    claimed: [...view.claimed],
+    memberCount: view.memberCount,
+    ...(view.earliestExpiryInMs === undefined
+      ? {}
+      : { earliestExpiryInMs: view.earliestExpiryInMs }),
   };
 }

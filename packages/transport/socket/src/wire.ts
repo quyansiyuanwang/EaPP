@@ -107,6 +107,26 @@ export interface WireRequest {
   revision?: Revision;
   /** `cancel`: the id of the request to abandon. */
   target?: number;
+  /** ConsumerGroup operations (§8). */
+  name?: string;
+  holder?: string;
+  cursors?: Cursor[];
+  initialCursor?: Cursor;
+  ttlMs?: number;
+}
+
+/**
+ * A group's shared state, as it travels.
+ *
+ * `earliestExpiryInMs` is a duration, not a timestamp: the broker's clock and a
+ * client's clock are not the same clock, and a duration is the only form that
+ * survives the trip.
+ */
+export interface WireGroupView {
+  cursor: Cursor;
+  claimed: Cursor[];
+  memberCount: number;
+  earliestExpiryInMs?: number;
 }
 
 export type WireResponse =

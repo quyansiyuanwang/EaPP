@@ -18,5 +18,7 @@
  */
 
 export * from './wire.js';
+export * from './group-registry.js';
+export * from './remote-group-store.js';
 export * from './broker.js';
 export * from './socket-transport.js';
