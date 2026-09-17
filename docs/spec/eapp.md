@@ -4,8 +4,8 @@
 
 | | |
 |---|---|
-| 协议版本 | `3.5.0` |
-| 状态 | FROZEN。`3.4.0` 的分卷 IV 与 `3.5.0` 的错误码条款尚未取得 §2.3 要求的评审，见 `CHANGELOG.md` |
+| 协议版本 | `3.6.0` |
+| 状态 | FROZEN。`3.4.0` / `3.5.0` / `3.6.0` 尚未取得 §2.3 要求的评审，见 `CHANGELOG.md` |
 | 规范用语 | MUST / MUST NOT / SHOULD / SHOULD NOT / MAY（RFC 2119） |
 | 适用范围 | 任何语言、任何运行时、任何传输 |
 
@@ -372,6 +372,45 @@ EaPP **不要求**它们具有相同的实现形态。
 - **P-2**：Plugin 的 `capabilities` MAY be empty。
 - **P-3**：Plugin Identity MUST NOT 在生命周期内改变。
 - **P-4**：Capability 集合 MAY 在生命周期内变化（通过显式声明更新）。
+
+### 8.4 装载
+
+各部分都依赖的第一步 —— **Plugin 如何进入运行时** —— 此前只以 `Bootstrap Runtime`（§15）的形式存在，
+而它只规定"第一个 Plugin"如何被加载。两次独立实现把它当作规范缺口，各自发明了一套互不相同的装载面，
+因此各自的测试无法跑在对方上。本节给出通用形态。
+
+```
+register(descriptor)     ->  PluginRef
+unregister(plugin)       ->  ()
+```
+
+**`PluginRef`** —— 运行时对已装载 Plugin 的引用。
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `identity` | `Identity` | 是 | 被引用 Plugin 的身份 |
+| `capabilities` | `Capability` 列表 | 是 | 当前声明，MAY 为空 |
+| `lifecycle` | `LifecycleState` | 是 | 当前参与状态 |
+
+`PluginRef` MUST 是自足的：持有它的调用方 MUST NOT 需要额外的查询才能取得上面三个字段。
+实现 MAY 附加更多字段；本表列出的字段 MUST NOT 被改名或改义。
+
+**`descriptor`** —— 装载请求。Identity 的三个字段直接在顶层给出：
+
+| 字段 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `domain` | string | 是 | 见 §6.1 |
+| `id` | string | 是 | 见 §6.1 |
+| `instance` | string | 是 | 见 §6.1 |
+| `capabilities` | `Capability` 列表 | 否 | 初始能力声明，缺省为空（`P-2`） |
+
+```
+P-5  装载 MUST 校验 Identity 的合法性（ID-1、ID-2）与该 (domain, id, instance) 的唯一性（ID-3）。
+P-6  装载是 Identity 进入运行时的唯一途径；Plugin MUST NOT 自行签发自己的身份（ID-5）。
+P-7  装载完成后 Plugin MUST 处于 INACTIVE；进入 ACTIVE 的唯一途径是 activate（LC-1）。
+P-8  unregister MUST 使该 Plugin 的全部非 CLOSED Binding 派生为 DORMANT 或 CLOSED，
+     且 MUST 幂等。
+```
 
 ---
 
@@ -862,12 +901,12 @@ Bootstrap Runtime MUST 尽可能小。MUST NOT 承担 Composition Core / Interac
 
 | 错误码 | 何时返回 |
 |---|---|
-| `EAPP_IDENTITY_INVALID` | `domain` 或 `id` 为空（`ID-1`、`ID-2`） |
+| `EAPP_IDENTITY_INVALID` | `domain`、`id` 或 `instance` 为空（`ID-1`、`ID-2`、`ID-3`），或 Identity 承载了版本字段（`ID-6`） |
 | `EAPP_IDENTITY_DUPLICATE` | 同一个 `(domain, id)` 内已存在相同的 `instance`（`ID-3`） |
-| `EAPP_CAPABILITY_NOT_FOUND` | `CapabilityRef` 所指的能力在任何已注册 Plugin 上都不存在 |
+| `EAPP_CAPABILITY_NOT_FOUND` | `CapabilityRef` 所指的能力在任何已注册 Plugin 上都不存在，或能力声明本身不合法：`name` 为空（`C-1`）、`version` 不是合法 SemVer（`C-2`） |
 | `EAPP_CAPABILITY_NOT_EXPOSED` | 该能力存在，但 `bind` 的 `from` 一方未暴露它（`O-2`、`B-2`） |
 | `EAPP_PLUGIN_NOT_FOUND` | `PluginRef` 所指的 Plugin 不在当前 Trust Scope 内（`D-1`、`B-1`） |
-| `EAPP_PLUGIN_INACTIVE` | 操作要求该 Plugin 处于 ACTIVE，而它处于 INACTIVE |
+| `EAPP_PLUGIN_INACTIVE` | 一个以"该 Plugin 处于 ACTIVE"为前提的操作被调用，而它处于 INACTIVE。**本版本没有这样的操作** —— `P-7` 只规定装载后处于 INACTIVE，没有规定任何操作以 ACTIVE 为前提。因此本版本中该码不可达，`ER-1` 无法被它检验；实现 MUST NOT 为其他情况返回它 |
 | `EAPP_BINDING_INVALID` | 目标 Binding 不存在（`CC-6`） |
 | `EAPP_BINDING_DUPLICATE` | 已存在一个非 CLOSED 的同 `(from, to, capability)` Binding（`B-6`） |
 | `EAPP_BINDING_CLOSED` | 目标 Binding 已是 CLOSED（`CC-7`） |
@@ -2448,10 +2487,11 @@ bind 的第二个参数是 PluginRef 还是它的 id？
 
 ## 51. 操作集合
 
-表面由**五个操作组**构成。组名是给读者的分类，不是新的本体。
+表面由**六个操作组**构成。组名是给读者的分类，不是新的本体。
 
 | 操作组 | 操作 | 定义处 |
 |---|---|---|
+| **装载** | `register`、`unregister` | §8.4 |
 | **发现** | `find`、`watch` | §12.2 |
 | **连接** | `bind`、`unbind`、`createChannel` | §12.2、§32 |
 | **激活** | `activate`、`deactivate`、`suspend`、`resume` | §12.2 |
@@ -2461,7 +2501,8 @@ bind 的第二个参数是 PluginRef 还是它的 id？
 **一个操作组 MUST 只含上表列出的操作**，且这些操作 MUST 使用上表与各定义处给出的名称与参数。
 实现 MAY 提供额外的操作，但**插件作者完成组合、互动与调用 MAY 不需要它们**（`OP-1`、`OP-2`）。
 
-四个操作组的语义与形状已在前三部分完全给出；本部分只补上第五组，它此前有信封而没有操作名。
+前五个操作组的语义与形状已在前三部分完全给出。本部分补上第六组（调用），它此前有信封而没有操作名；
+装载组由 §8.4 定义，它是三次独立实现都不得不自行发明的那一处。
 
 ## 52. 调用
 
@@ -2483,12 +2524,17 @@ invoke(from, to, capability, request, options)   ->  response
 
 结果是 `ResponseMessage.result`（成功）或一个 `EappError`（失败）。
 
-**`from` 是被调用方的对面。** 这与 `bind(from, to, capability)` 中 `from` 是提供方并不矛盾：
-`bind` 描述的是能力的**提供**方向，`invoke` 描述的是请求的**发出**方向。
-两个操作的 `to` 都指向被调用方所暴露的能力（`OP-4`）。
+**`from` 与 `bind` 的方向相反。** 两个操作都写 `from`，但它指的是不同的一方：
 
 ```
-invoke(from, to, capability)  ⟺  bind(from = to, to = from, capability) 之上的 request
+bind(from, to)      from = 提供 Capability 的一方   to = 消费方
+invoke(from, to)    from = 调用方                  to = 被调用方
+```
+
+因此同一次调用的两侧互为对方的 `from`：
+
+```
+invoke(from = C, to = P, capability)  ⟺  bind(from = P, to = C, capability) 之上的 request
 ```
 
 **超时 MUST 以 `EAPP_TIMEOUT` 结束。** 截止时间到达时，`invoke` MUST 失败，MUST NOT 继续等待，
@@ -2498,14 +2544,17 @@ MUST NOT 返回一个形态未定义的值（`OP-5`）。迟到的应答 MUST �
 
 | 等级 | 要求 | 蕴含自 |
 |---|---|---|
-| **CS1 Discovery** | `find`、`watch` | C1 |
+| **CS1 Discovery** | `register`、`unregister`、`find`、`watch` | C1 |
 | **CS2 Connection** | `bind`、`unbind`、`createChannel` | C1、C2 |
 | **CS3 Lifecycle** | `activate`、`deactivate`、`suspend`、`resume` | C3 |
 | **CS4 Messaging** | `send`、`subscribe`，以及消费单元的 `ack` / `nack` | I1、I2、I6 |
-| **CS5 Invocation** | `invoke` | I1、RQ |
+| **CS5 Invocation** | `invoke` | I1 |
 
 声明某一等级的实现 MUST 声明上表"蕴含自"一列中的全部等级；反之，声明后者中的某一等级时
 MUST 同时声明对应的表面等级（`OP-9`）。例如，声明 `I6` 的实现 MUST 同时声明 `CS4`。
+
+`CS5` 蕴含自 `I1` 而非 `RQ`：`RQ-*` 是一组不变量，不是 §3.2 定义的合规等级，
+而请求模式本身属于 `I1` 的"四种模式"。
 
 含 `state` 模式的 Channel 不在此表内：它复用 `send` / `subscribe` / `ack`，语义见第 III 部分。
 
@@ -2513,22 +2562,28 @@ MUST 同时声明对应的表面等级（`OP-9`）。例如，声明 `I6` 的实
 
 ```
 OP-1  表面 MUST 只由本协议规定的操作组成。实现 MUST NOT 要求插件作者使用本协议未定义的
-      入口来完成组合、互动或调用。
-OP-2  五个操作的参数与结果中的类型 MUST 全部在本协议内定义；
-      插件作者 MUST 无需访问实现的内部对象即可完成组合、互动与调用。
+      入口来完成装载、组合、互动或调用。
+OP-2  §51 表中所列操作的参数与结果中的类型 MUST 全部在本协议内定义；
+      插件作者 MUST 无需访问实现的内部对象即可完成装载、组合、互动与调用。
 OP-3  表面 MUST NOT 引入本协议未定义的语义。表面是前三部分的剖面，不是第四层。
-OP-4  bind 的 from MUST 是提供 Capability 的一方；invoke 的 from MUST 是调用方。
-      两个操作的 to MUST 指向同一方。
+OP-4  bind(from, to) 的 from MUST 是提供 Capability 的一方；
+      invoke(from, to) 的 from MUST 是调用方。两者方向相反，见 §52。
 OP-5  invoke MUST 携带关联标识；截止时间到达时 MUST 以 EAPP_TIMEOUT 结束，
       MUST NOT 静默挂起，MUST NOT 返回形态未定义的值。
 OP-6  activate / deactivate / suspend / resume 的语义 MUST 与 §10 一致；
       suspend MUST NOT 断开 Binding。
-OP-7  同一组合语义的两份实现 MUST 能只经由表面互通：表面 MUST NOT 要求实现特有的握手、
-      能力协商或序列化约定。
-OP-8  find 的结果 MUST 可直接作为 bind 与 invoke 的输入，
+OP-7  表面 MUST NOT 要求实现特有的握手、能力协商或序列化约定；
+      一个只使用 §51 所列操作的调用方 MUST 能被另一份实现原样接受。
+OP-8  find 返回的 PluginRef MUST 可直接作为 bind、activate 与 invoke 的输入，
       MUST NOT 需要额外的注册、转换或转写步骤。
-OP-9  声明 C1、C2、C3、I1 或 I6 中任一等级的实现 MUST 同时声明由它蕴含的表面等级（§53）。
+OP-9  声明 C1、C2、C3、I1、I2 或 I6 中任一等级的实现 MUST 同时声明 §53 表中由它蕴含的表面等级。
+OP-10 §8.4 的装载操作 MUST 出现在任何提供 CS1 的实现上；
+      register 的 descriptor 形状 MUST 为 §8.4 给出的那个。
 ```
+
+`OP-7` 的措辞在 `3.6.0` 收窄过一次：它原先要求"两份实现能只经由表面互通"。
+那是一条**单份实现无法提供判定**的条款，而 §3.1 要求每条不变量都有可执行的判定 ——
+互通是 §50 陈述的目标，不是一条可被单独检验的不变量。
 
 ---
 
@@ -2559,7 +2614,7 @@ OP-9  声明 C1、C2、C3、I1 或 I6 中任一等级的实现 MUST 同时声明
 
 ### B.1 Composition Core（§4–§21）
 
-首次冻结于协议版本 `3.0.0`。后续新增：`C-7`（`3.3.0`）、`ER-1` / `ER-2`（`3.5.0`）。
+首次冻结于协议版本 `3.0.0`。后续新增：`C-7`（`3.3.0`）、`ER-1` / `ER-2`（`3.5.0`）、`P-5`…`P-8`（`3.6.0`）。
 
 ```text
 ID-1  domain MUST NOT be empty.
@@ -2581,6 +2636,10 @@ P-1   Every Plugin MUST have a unique Identity.
 P-2   Plugin.capabilities MAY be empty.
 P-3   Plugin Identity MUST NOT change during lifecycle.
 P-4   Capability set MAY change via explicit declaration.
+P-5   Registration MUST validate the Identity and its uniqueness (ID-1..ID-3).
+P-6   Registration is the only way an Identity enters the runtime (ID-5).
+P-7   A Plugin MUST be INACTIVE after registration (LC-1).
+P-8   unregister MUST be idempotent and MUST derive its Bindings to DORMANT or CLOSED.
 
 B-1   Binding.from and Binding.to MUST be existing Plugins.
 B-2   Binding.capability MUST be exposed by Binding.from.
@@ -2750,7 +2809,7 @@ IX-6   StateChannel MUST be a narrowing view of Channel.
 
 ### B.4 插件开发表面（§50–§54）
 
-首次冻结于协议版本 `3.4.0`。
+首次冻结于协议版本 `3.4.0`。后续新增：`OP-10`（`3.6.0`）；`OP-4` 与 `OP-7` 的措辞在 `3.6.0` 收窄过。
 
 ```text
 OP-1   表面 MUST 只由本协议规定的操作组成。
@@ -2761,7 +2820,8 @@ OP-5   invoke MUST 携带关联标识；截止时间到达 MUST 以 EAPP_TIMEOUT
 OP-6   activate / deactivate / suspend / resume 的语义 MUST 与 Lifecycle 一致。
 OP-7   同一组合语义的两份实现 MUST 能只经由表面互通。
 OP-8   find 的结果 MUST 可直接作为 bind 与 invoke 的输入。
-OP-9   声明 C1、C2、C3、I1 或 I6 中任一等级的实现 MUST 声明对应的表面等级。
+OP-9   声明 C1、C2、C3、I1、I2 或 I6 中任一等级的实现 MUST 同时声明由它蕴含的表面等级。
+OP-10  装载操作 MUST 出现在任何提供 CS1 的实现上，且其 descriptor 形状 MUST 为规范给出的那个。
 ```
 
 ---
@@ -2828,7 +2888,7 @@ ER-2  每个在附录 D 中登记的错误码 MUST 在本文件中被某一条�
 | `EAPP_LEASE_EXPIRED` | Interaction Layer | §33 |
 | `EAPP_LEASE_CLOSED` | Interaction Layer | §33 |
 | `EAPP_LEASE_CONFLICT` | Interaction Layer | §33 |
-| `EAPP_TIMEOUT` | 插件开发表面 | §33 |
+| `EAPP_TIMEOUT` | Interaction Layer | §33 |
 | `EAPP_STATE_UNSUPPORTED` | State Mode | §47 |
 | `EAPP_WATCH_UNSUPPORTED` | State Mode | §47 |
 | `EAPP_STATE_KEY_INVALID` | State Mode | §47 |

@@ -9,7 +9,7 @@
 
 | 交付物 | 位置 | 说明 |
 |---|---|---|
-| 规范性正文 | [`docs/spec/eapp.md`](../spec/eapp.md) | EaPP 协议的**唯一**语义来源。协议版本 `3.5.0`，54 节，221 条不变量，四部分与四个附录 |
+| 规范性正文 | [`docs/spec/eapp.md`](../spec/eapp.md) | EaPP 协议的**唯一**语义来源。协议版本 `3.6.0`，54 节，226 条不变量，四部分与四个附录 |
 | 规范闸门 | `tools/check-spec.mjs` | 对那份正文自身的机械检查，见第 4 节 |
 | 文档闸门 | `tools/check-docs.mjs` | 相对链接与正文语域，见第 4 节 |
 
@@ -82,8 +82,8 @@ npm run verify
 
 ```
 spec sections: 54, numbered 1..54
-spec references: 104 § reference(s) checked, 0 dangling, 0 inside appendix B
-spec invariants: 221 declared, 0 declared twice, 0 never stated
+spec references: 113 § reference(s) checked, 0 dangling, 0 inside appendix B
+spec invariants: 226 declared, 0 declared twice, 0 never stated
 spec error codes: 36 registered, 0 without a stated condition
 spec self-sufficiency: 0 link(s) out of docs/spec/
 spec language neutrality: 0 implementation reference(s), 0 language-tagged block(s)

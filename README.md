@@ -12,7 +12,7 @@
 
 ## 1. 规范
 
-唯一规范性正文：[`docs/spec/eapp.md`](docs/spec/eapp.md)，协议版本 `3.5.0`。
+唯一规范性正文：[`docs/spec/eapp.md`](docs/spec/eapp.md)，协议版本 `3.6.0`。
 
 | 分卷 | 内容 |
 |---|---|
@@ -28,7 +28,7 @@ Composition Core  →  Interaction Layer  →  State Mode  →  Transport
 ```
 
 ```
-不变量        221 条，全部在正文中被陈述（清单见附录 B）
+不变量        226 条，全部在正文中被陈述（清单见附录 B）
 章节          54 节，编号连续
 错误码        36 个（登记见附录 D）
 ```
@@ -37,17 +37,18 @@ Composition Core  →  Interaction Layer  →  State Mode  →  Transport
 
 ## 2. 五个操作
 
-插件作者的全部组合工作由五个操作组完成（规范 §51）：
+插件作者的全部组合工作由六个操作组完成（规范 §51）：
 
 | 操作组 | 操作 | 规范出处 |
 |---|---|---|
+| **装载** | `register`、`unregister` | §8.4 |
 | **发现** | `find`、`watch` | §12.2 |
 | **连接** | `bind`、`unbind`、`createChannel` | §12.2 · §32 |
 | **激活** | `activate`、`deactivate`、`suspend`、`resume` | §12.2 |
 | **通信** | `send`、`subscribe`，以及消费单元自带的 `ack` / `nack` | §30.1 · §27.1 · §29 |
 | **调用** | `invoke` | §52 |
 
-五个操作组构成的**表面不是第四层**。它不含新的本体，也不改变前三部分的语义：
+六个操作组构成的**表面不是第四层**。它不含新的本体，也不改变前三部分的语义：
 它把前三部分已经要求过的操作，在名称、参数、结果与错误码上钉死，使两份互不相识的实现所写出的
 插件能够互相组合（`OP-1`…`OP-9`）。
 

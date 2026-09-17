@@ -1,6 +1,6 @@
 {
   "name": "eapp",
-  "version": "3.5.0",
+  "version": "3.6.0",
   "private": true,
   "type": "module",
   "description": "EaPP — Everything as a Plugin Protocol / 万物皆插件协议. The normative specification, and the gates that keep it self-consistent.",

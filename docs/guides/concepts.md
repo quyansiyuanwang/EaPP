@@ -69,6 +69,7 @@ Transport 的边界值得单独说清：
 
 | 操作组 | 操作 | 定义处 |
 |---|---|---|
+| **装载** | `register`、`unregister` | §8.4 |
 | **发现** | `find`、`watch` | §12.2 |
 | **连接** | `bind`、`unbind`、`createChannel` | §12.2、§32 |
 | **激活** | `activate`、`deactivate`、`suspend`、`resume` | §12.2 |
