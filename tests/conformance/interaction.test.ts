@@ -20,6 +20,7 @@ import {
   type ChannelMode,
   type Cursor,
   type CursorAnchor,
+  type SubscriptionSource,
   type Transport,
   type TransportCapabilities,
 } from '@eapp/interaction';
@@ -695,6 +696,230 @@ describe('ST: stream mode', () => {
     await loose.settle();
   });
 });
+// =============================================================================
+// CG — ConsumerGroup (§8)
+// =============================================================================
+describe('CG: ConsumerGroup', () => {
+  /** A group source over raw transport messages; the group supplies the AckContext. */
+  function groupSource(
+    transport: MemoryTransport,
+    channelId: string,
+  ): SubscriptionSource<DeliveredMessage> {
+    return {
+      head: () => transport.resolveAnchor(channelId, 'latest'),
+      earliest: async () => '' as Cursor,
+      readAfter: async (position, ack) => {
+        const messages = await transport.readAfter(channelId, position, { all: true });
+        return messages.map((message) => {
+          const context = ack(message.cursor);
+          return {
+            cursor: message.cursor,
+            item: {
+              cursor: message.cursor,
+              payload: message.payload,
+              ack: () => context.ack(),
+              nack: () => context.nack(),
+            },
+          };
+        });
+      },
+      waitForChange: (position, signal) => transport.waitForChange(channelId, position, signal),
+    };
+  }
+
+  async function groupHarness(options: { claimTtlMs?: number; now?: () => number } = {}) {
+    const transport = makeTransport();
+    const interaction = new InteractionLayerImpl({ transport });
+    const channel = await interaction.createChannel({ binding: 'b1', mode: 'stream' });
+    await channel.connect();
+    const groupOptions = {
+      name: 'workers',
+      ...(options.claimTtlMs !== undefined ? { claimTtlMs: options.claimTtlMs } : {}),
+    };
+    const group = await interaction.openConsumerGroup<DeliveredMessage>(
+      channel.id,
+      groupOptions,
+      groupSource(transport, channel.id),
+      options.now ? { now: options.now } : {},
+    );
+    return { transport, interaction, channel, group };
+  }
+
+  test('CG-1: a group name is unique within its Channel', async () => {
+    const { interaction, channel, transport } = await groupHarness();
+    await expect(
+      interaction.openConsumerGroup(
+        channel.id,
+        { name: 'workers' },
+        groupSource(transport, channel.id),
+      ),
+    ).rejects.toThrow('EAPP_SUBSCRIPTION_INVALID');
+
+    // ...but the same name on a different Channel is fine.
+    const other = await interaction.createChannel({ binding: 'b2', mode: 'stream' });
+    await expect(
+      interaction.openConsumerGroup(
+        other.id,
+        { name: 'workers' },
+        groupSource(transport, other.id),
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  test('CG-2: every member shares exactly one cursor', async () => {
+    const { transport, interaction, channel, group } = await groupHarness();
+    const a = await interaction.joinConsumerGroup<DeliveredMessage>(channel.id, 'workers');
+    const b = await interaction.joinConsumerGroup<DeliveredMessage>(channel.id, 'workers');
+    expect(group.memberCount).toBe(2);
+
+    await transport.send(channel.id, { n: 1 });
+    const da = collect(a);
+    await waitFor(() => da.items.length >= 1);
+
+    await da.items[0]?.ack();
+    // One position for the whole group: b reflects it without doing anything itself.
+    expect(group.cursor).toBe(da.items[0]?.cursor);
+    expect(b.cursor).toBe(a.cursor);
+    await a.close();
+    await b.close();
+    await da.settle();
+  });
+
+  test('CG-3 / CG-6: a claimed message is not handed to a peer, and release frees it', async () => {
+    const { transport, interaction, channel } = await groupHarness();
+    const a = await interaction.joinConsumerGroup<DeliveredMessage>(channel.id, 'workers');
+    const iteratorA = a[Symbol.asyncIterator]();
+
+    await transport.send(channel.id, { n: 1 });
+    const first = await iteratorA.next();
+    // A now holds message 1 and deliberately stops pulling. Competing means exactly one
+    // member wins a released position, so letting A keep pulling would make this a race
+    // rather than a test.
+    const held = first.value!;
+    expect(held.payload).toEqual({ n: 1 });
+
+    const b = await interaction.joinConsumerGroup<DeliveredMessage>(channel.id, 'workers');
+    const db = collect(b, true);
+    await sleep(80);
+    expect(db.items).toHaveLength(0); // CG-3: never two holders
+
+    // CG-6: A rejects it, so it returns to the group and B picks it up.
+    await held.nack();
+    await waitFor(() => db.items.length >= 1, 900);
+    expect(db.items[0]?.payload).toEqual({ n: 1 });
+
+    await a.close();
+    await b.close();
+    await db.settle();
+  });
+
+  test('CG-6: an expired claim returns to the group on its own', async () => {
+    let now = 1000;
+    const { transport, interaction, channel } = await groupHarness({
+      claimTtlMs: 100,
+      now: () => now,
+    });
+    const a = await interaction.joinConsumerGroup<DeliveredMessage>(channel.id, 'workers');
+    const iteratorA = a[Symbol.asyncIterator]();
+    await transport.send(channel.id, { n: 7 });
+    await iteratorA.next(); // A takes it and then goes silent forever
+
+    const b = await interaction.joinConsumerGroup<DeliveredMessage>(channel.id, 'workers');
+    const db = collect(b, true);
+    await sleep(60);
+    expect(db.items).toHaveLength(0);
+
+    // Nothing new is published and A will never nack, so the claim has to expire for the
+    // group to make progress at all — and B has to notice that on its own.
+    now += 500;
+    await waitFor(() => db.items.length >= 1, 1500);
+    expect(db.items[0]?.payload).toEqual({ n: 7 });
+
+    await a.close();
+    await b.close();
+    await db.settle();
+  });
+
+  test('CG-4: different groups on one Channel keep independent cursors', async () => {
+    const { transport, interaction, channel } = await groupHarness();
+    await interaction.openConsumerGroup<DeliveredMessage>(
+      channel.id,
+      { name: 'auditors' },
+      groupSource(transport, channel.id),
+    );
+
+    const workers = await interaction.joinConsumerGroup<DeliveredMessage>(channel.id, 'workers');
+    const auditors = await interaction.joinConsumerGroup<DeliveredMessage>(channel.id, 'auditors');
+    const dw = collect(workers, true);
+    const dg = collect(auditors, true);
+
+    await transport.send(channel.id, { n: 1 });
+    await waitFor(() => dw.items.length >= 1 && dg.items.length >= 1);
+    expect(dw.items).toHaveLength(1);
+    expect(dg.items).toHaveLength(1);
+
+    await transport.send(channel.id, { n: 2 });
+    await waitFor(() => dw.items.length >= 2 && dg.items.length >= 2);
+    expect(dg.items.map((m) => (m.payload as { n: number }).n)).toEqual([1, 2]);
+
+    await workers.close();
+    await auditors.close();
+    await dw.settle();
+    await dg.settle();
+  });
+
+  test('CG-5: a member leaving does not stall the group', async () => {
+    const { transport, interaction, channel, group } = await groupHarness();
+    const a = await interaction.joinConsumerGroup<DeliveredMessage>(channel.id, 'workers');
+    const iteratorA = a[Symbol.asyncIterator]();
+
+    await transport.send(channel.id, { n: 1 });
+    const held = (await iteratorA.next()).value!;
+    expect(held.payload).toEqual({ n: 1 });
+
+    // A leaves while still holding message 1 and without acknowledging it.
+    await a.close();
+    expect(group.memberCount).toBe(0);
+
+    // Its departure must have released the position immediately: a member that has gone
+    // away is never going to ack, so waiting for the claim TTL would idle the group.
+    const b = await interaction.joinConsumerGroup<DeliveredMessage>(channel.id, 'workers');
+    const db = collect(b, true);
+    await waitFor(() => db.items.length >= 1, 900);
+    expect(db.items[0]?.payload).toEqual({ n: 1 });
+
+    await b.close();
+    await db.settle();
+  });
+
+  test('CG-7: a ConsumerGroup never outlives its Channel', async () => {
+    const { transport, interaction, channel } = await groupHarness();
+    await expect(
+      interaction.openConsumerGroup(
+        'no-such-channel',
+        { name: 'x' },
+        groupSource(transport, 'no-such-channel'),
+      ),
+    ).rejects.toThrow('EAPP_CHANNEL_INVALID');
+
+    expect(interaction.listConsumerGroups(channel.id)).toHaveLength(1);
+    await interaction.closeChannel(channel.id);
+    expect(interaction.listConsumerGroups(channel.id)).toHaveLength(0);
+  });
+
+  test('CG-8: joining MUST name an existing group on the same Channel', async () => {
+    const { interaction, channel } = await groupHarness();
+    await expect(interaction.joinConsumerGroup(channel.id, 'nobody')).rejects.toThrow(
+      'EAPP_SUBSCRIPTION_INVALID',
+    );
+
+    const member = await interaction.joinConsumerGroup<DeliveredMessage>(channel.id, 'workers');
+    expect(member.mode).toBe('group');
+    expect((member as unknown as { group: string }).group).toBe('workers');
+    await member.close();
+  });
+});
+
 describe('CC: Composition boundary', () => {
   test('CC-3 / CC-8 / CC-9: creation, state and multiplicity', async () => {
     const transport = makeTransport();

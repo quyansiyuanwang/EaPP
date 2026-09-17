@@ -10,6 +10,13 @@ import {
   type ManagedChannel,
 } from './channel.js';
 import type { Transport } from './transport.js';
+import {
+  ConsumerGroupImpl,
+  type ConsumerGroup,
+  type ConsumerGroupDeps,
+  type ConsumerGroupOptions,
+} from './consumer-group.js';
+import type { Subscription, SubscriptionSource } from './subscription.js';
 
 /**
  * Channel creation — EaPP v3.1.0 §11 (added by errata E1-5).
@@ -58,6 +65,25 @@ export interface InteractionLayer {
   channelState(id: string): ChannelState;
   listChannels(): ManagedChannel[];
   closeChannel(id: string): Promise<void>;
+
+  /** §8: competing-consumer scope. Names are unique per Channel (CG-1). */
+  openConsumerGroup<T>(
+    channelId: string,
+    options: ConsumerGroupOptions,
+    source: SubscriptionSource<T>,
+    deps?: ConsumerGroupDeps,
+  ): Promise<ConsumerGroup<T>>;
+  consumerGroup(channelId: string, name: string): ConsumerGroup<unknown> | undefined;
+  /** CG-8: joining MUST name an existing group on the same Channel. */
+  joinConsumerGroup<T>(channelId: string, name: string): Promise<Subscription<T>>;
+  listConsumerGroups(channelId: string): ConsumerGroup<unknown>[];
+}
+
+/** The part of a group the layer needs to manage its lifecycle. */
+interface GroupHandle {
+  readonly name: string;
+  readonly channel: string;
+  close(): Promise<void>;
 }
 
 export interface InteractionLayerOptions {
@@ -74,6 +100,8 @@ export class InteractionLayerImpl implements InteractionLayer {
   readonly #bindings: BindingSource | undefined;
   readonly #nextId: () => string;
   readonly #channels = new Map<string, ChannelImpl>();
+  /** channelId -> group name -> handle. Names are unique per Channel (CG-1). */
+  readonly #groups = new Map<string, Map<string, GroupHandle>>();
 
   constructor(options: InteractionLayerOptions) {
     this.#transport = options.transport;
@@ -93,7 +121,12 @@ export class InteractionLayerImpl implements InteractionLayer {
       for (const channel of this.#channels.values()) {
         if (channel.binding !== bindingId) continue;
         if (state === 'CLOSED') {
-          void channel.close();
+          // CG-7 again: groups go before the Channel does.
+          void (async () => {
+            for (const group of this.#groups.get(channel.id)?.values() ?? []) await group.close();
+            this.#groups.delete(channel.id);
+            await channel.close();
+          })();
         } else if (state === 'DORMANT') {
           void channel.drain();
         } else {
@@ -165,6 +198,54 @@ export class InteractionLayerImpl implements InteractionLayer {
 
   async closeChannel(id: string): Promise<void> {
     const channel = this.#require(id);
+    // CG-7: a group never outlives its Channel.
+    for (const group of this.#groups.get(id)?.values() ?? []) await group.close();
+    this.#groups.delete(id);
     await channel.close();
+  }
+
+  // ------------------------------------------------------------------ ConsumerGroup §8
+
+  async openConsumerGroup<T>(
+    channelId: string,
+    options: ConsumerGroupOptions,
+    source: SubscriptionSource<T>,
+    deps: ConsumerGroupDeps = {},
+  ): Promise<ConsumerGroup<T>> {
+    this.#require(channelId); // CG-7: the Channel must exist
+
+    const byName = this.#groups.get(channelId) ?? new Map<string, GroupHandle>();
+    this.#groups.set(channelId, byName);
+    if (byName.has(options.name)) {
+      throw new EappError(
+        'EAPP_SUBSCRIPTION_INVALID',
+        `ConsumerGroup '${options.name}' already exists on channel '${channelId}'`, // CG-1
+      );
+    }
+
+    const group = await ConsumerGroupImpl.open<T>(channelId, options, source, deps);
+    byName.set(options.name, group);
+    return group;
+  }
+
+  consumerGroup(channelId: string, name: string): ConsumerGroup<unknown> | undefined {
+    return this.#groups.get(channelId)?.get(name) as ConsumerGroup<unknown> | undefined;
+  }
+
+  async joinConsumerGroup<T>(channelId: string, name: string): Promise<Subscription<T>> {
+    this.#require(channelId);
+    const group = this.#groups.get(channelId)?.get(name);
+    if (!group) {
+      // CG-8: a group member MUST name a group that exists on this Channel.
+      throw new EappError(
+        'EAPP_SUBSCRIPTION_INVALID',
+        `no ConsumerGroup '${name}' on channel '${channelId}'`,
+      );
+    }
+    return (group as ConsumerGroupImpl<T>).join();
+  }
+
+  listConsumerGroups(channelId: string): ConsumerGroup<unknown>[] {
+    return [...(this.#groups.get(channelId)?.values() ?? [])] as ConsumerGroup<unknown>[];
   }
 }

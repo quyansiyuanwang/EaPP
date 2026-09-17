@@ -14,4 +14,5 @@ export * from './channel.js';
 export * from './messages.js';
 export * from './transport.js';
 export * from './subscription.js';
+export * from './consumer-group.js';
 export * from './interaction-layer.js';

@@ -52,7 +52,11 @@ export interface SubscriptionSource<T> {
 const DEFAULT_POLL_MS = 50;
 let subscriptionSeq = 0;
 
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
+/**
+ * Sleep that wakes early when the signal aborts. Exported because ConsumerGroup paces
+ * its members the same way; duplicating it would mean fixing the same edge twice.
+ */
+export function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     const timer = setTimeout(finish, ms);
     function finish(): void {
@@ -209,7 +213,7 @@ export class TransportSubscription<T> implements Subscription<T> {
     const signal = AbortSignal.any([this.#abort.signal, controller.signal]);
     const { waitForChange } = this.#source;
     const promise = (
-      waitForChange ? waitForChange(this.#cursor, signal) : sleep(this.#pollMs, signal)
+      waitForChange ? waitForChange(this.#cursor, signal) : delay(this.#pollMs, signal)
     ).catch(() => undefined);
     return { promise, cancel: () => controller.abort() };
   }
@@ -236,7 +240,7 @@ export class TransportSubscription<T> implements Subscription<T> {
         // already handed over and is being re-delivered. Pacing it keeps the
         // at-least-once contract from becoming a busy loop with unbounded growth.
         armed.cancel();
-        await sleep(this.#pollMs, this.#abort.signal);
+        await delay(this.#pollMs, this.#abort.signal);
       } else {
         armed.cancel();
       }
