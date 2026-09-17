@@ -883,8 +883,7 @@ supportsStateRevision === false ⟹  MUST NOT 用于 CAS
 
 规范明确取消了"最终一致 + CAS"的豁免（v3.2 §12.3）：
 
-> r2 给 CRDT 加了 `⚠️` 豁免，允许"eventual 的 revision + CAS"共存 ——
-> 那等于允许一个会**静默丢更新**的 CAS。
+> 允许"eventual 的 revision + CAS"共存，等于允许一个会**静默丢更新**的 CAS。
 
 所以一个 CRDT 形态的存储必须这样声明：
 

@@ -95,7 +95,8 @@ Revision   key 存在且 revision 精确匹配
 ```
 
 **已逻辑删除的 key 仍然算"存在"**，所以 `null` 不能复活它 —— 复活必须携带旧 revision。
-很多实现会写成 `if (current != null && !current.deleted)`，那正是原始草案的错误。
+把它读成"当前不存在"会写成 `if (current != null && !current.deleted)`，
+于是逻辑删除变成复活，而 `DEL-5` 的分支永远走不到。
 
 ### 3.4 删除**不是** `set(deleted: true)`
 
