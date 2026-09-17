@@ -769,6 +769,85 @@ describe('TS: transport', () => {
 });
 
 // =============================================================================
+// TS-11 / stateRetention — bounded history
+// =============================================================================
+describe('TS: retention window', () => {
+  test('the declared retention is reported truthfully', async () => {
+    expect(new MemoryTransport().capabilities.stateRetention).toEqual({ kind: 'unbounded' });
+    expect(
+      new MemoryTransport('w', { retention: { kind: 'window', entries: 4 } }).capabilities
+        .stateRetention,
+    ).toEqual({ kind: 'window', entries: 4 });
+    expect(() => new MemoryTransport('w', { retention: { kind: 'window', entries: 0 } })).toThrow(
+      'EAPP_UNSUPPORTED',
+    );
+  });
+
+  test('a windowed transport discards the oldest positions and says where it starts now', async () => {
+    const transport = new MemoryTransport('w', { retention: { kind: 'window', entries: 3 } });
+    const interaction = new InteractionLayerImpl({ transport });
+    const channel = await interaction.createChannel({ binding: 'b', mode: 'state' });
+    await channel.connect();
+
+    const revisions: string[] = [];
+    let expected: string | null = null;
+    for (let i = 0; i < 6; i += 1) {
+      expected = await transport.setStateWithCAS(
+        channel.id,
+        { key: 'k', value: i, expectedRevision: expected },
+        OWNER,
+      );
+      revisions.push(expected);
+    }
+
+    // Only the last three positions survive, and the floor is the newest discarded one:
+    // positions strictly after it are still readable.
+    const retained = await transport.readChangesAfter(channel.id, undefined, { all: true });
+    expect(retained.map((c) => c.revision)).toEqual(revisions.slice(-3));
+
+    // 'earliest' resolves to the floor, not to a position that no longer exists.
+    const earliest = await transport.resolveAnchor(channel.id, 'earliest');
+    expect(earliest).toBe(revisions[2]);
+    expect(transport.compareRevision(earliest, revisions[3]!)).toBeLessThan(0);
+    expect(retained[0]?.revision).toBe(revisions[3]);
+  });
+
+  test('TS-11: a cursor that has been discarded is refused, not silently truncated', async () => {
+    const transport = new MemoryTransport('w', { retention: { kind: 'window', entries: 2 } });
+    const first = await transport.send('room', { n: 1 });
+    const second = await transport.send('room', { n: 2 });
+    await transport.send('room', { n: 3 });
+    await transport.send('room', { n: 4 }); // now the first entry has been pushed out
+
+    expect(await transport.resolveAnchor('room', 'earliest')).toBe(second);
+
+    // The consumer thinks it is resuming from where it left off. It is not — everything up
+    // to and including `first` is gone. Silently serving the truncated history would lose
+    // messages without the consumer ever finding out.
+    await expect(transport.readAfter('room', first, { all: true })).rejects.toThrow(
+      'EAPP_CURSOR_TOO_OLD',
+    );
+    await expect(transport.readChangesAfter('room', first, { all: true })).rejects.toThrow(
+      'EAPP_CURSOR_TOO_OLD',
+    );
+
+    // Reading strictly after the floor is still answerable.
+    await expect(transport.readAfter('room', second, { all: true })).resolves.toHaveLength(2);
+  });
+
+  test('an unbounded transport never reports a cursor as too old', async () => {
+    const { transport, ch } = await makeChannel();
+    const first = await ch.set({ key: 'k', value: 1, expectedRevision: null });
+    for (let i = 0; i < 20; i += 1) {
+      await ch.set({ key: 'k', value: i, expectedRevision: (await ch.get('k'))!.revision });
+    }
+    // The very first position is still serviceable.
+    const changes = await transport.readChangesAfter(ch.id, first, { all: true });
+    expect(changes.length).toBe(20);
+  });
+});
+
+// =============================================================================
 // IX — interface isolation
 // =============================================================================
 describe('IX: layer isolation', () => {

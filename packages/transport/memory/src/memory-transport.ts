@@ -36,6 +36,16 @@ const WIDTH = 16;
 
 let transportSeq = 0;
 
+export interface MemoryTransportOptions {
+  /**
+   * How much history is kept. `window` drops the oldest entries once the count is
+   * exceeded, which is what makes `EAPP_CURSOR_TOO_OLD` reachable: a consumer asking for a
+   * position that has already been discarded must be told to resynchronise rather than
+   * silently handed a truncated history.
+   */
+  retention?: { kind: 'unbounded' } | { kind: 'window'; entries: number };
+}
+
 export class MemoryTransport implements StateTransport {
   readonly id: string;
   readonly capabilities: StateTransportCapabilities;
@@ -47,6 +57,12 @@ export class MemoryTransport implements StateTransport {
   readonly #cells = new Map<string, Map<string, StateCell>>();
   /** channel -> ordered change log */
   readonly #changes = new Map<string, StateChange[]>();
+  /**
+   * channel -> the newest position that has been discarded.
+   *
+   * A read from anything at or below this is unanswerable: those entries are gone.
+   */
+  readonly #floors = new Map<string, Cursor>();
   /** channel -> current head revision */
   readonly #heads = new Map<string, Revision>();
   /**
@@ -59,10 +75,15 @@ export class MemoryTransport implements StateTransport {
    */
   readonly #anchors = new Map<string, Cursor>();
   readonly #waiters = new Map<string, Set<() => void>>();
+  readonly #retention: { kind: 'unbounded' } | { kind: 'window'; entries: number };
   #closed = false;
 
-  constructor(id?: string) {
+  constructor(id?: string, options: MemoryTransportOptions = {}) {
     this.id = id ?? `mem-${++transportSeq}`;
+    this.#retention = options.retention ?? { kind: 'unbounded' };
+    if (this.#retention.kind === 'window' && !(this.#retention.entries > 0)) {
+      throw new EappError('EAPP_UNSUPPORTED', 'retention window entries MUST be > 0');
+    }
     this.capabilities = {
       persistent: false,
       ordering: 'global',
@@ -75,7 +96,7 @@ export class MemoryTransport implements StateTransport {
       supportsStateWatch: true,
       supportsStateSnapshot: true,
       stateConsistency: 'strong',
-      stateRetention: { kind: 'unbounded' },
+      stateRetention: this.#retention,
     };
   }
 
@@ -85,6 +106,56 @@ export class MemoryTransport implements StateTransport {
     if (this.#closed) {
       throw new EappError('EAPP_UNSUPPORTED', `transport ${this.id} is closed`);
     }
+  }
+
+  /**
+   * Drop anything older than the retention window and record the new floor.
+   *
+   * Both logs are trimmed together so that a single position domain stays consistent:
+   * a cursor discarded from the message log must not still appear to be readable from the
+   * change log.
+   */
+  #trim(channel: string): void {
+    if (this.#retention.kind !== 'window') return;
+    const limit = this.#retention.entries;
+
+    const messages = this.#messages.get(channel);
+    if (messages && messages.length > limit) {
+      const dropped = messages.splice(0, messages.length - limit);
+      const last = dropped[dropped.length - 1];
+      if (last) this.#floors.set(channel, last.cursor);
+    }
+
+    const changes = this.#changes.get(channel);
+    if (changes && changes.length > limit) {
+      const dropped = changes.splice(0, changes.length - limit);
+      const last = dropped[dropped.length - 1];
+      if (last) {
+        const floor = this.#floors.get(channel);
+        if (floor === undefined || last.revision > floor) this.#floors.set(channel, last.revision);
+      }
+    }
+  }
+
+  /**
+   * Resolve a read position. `undefined` and the empty sentinel both mean "from the
+   * earliest position still retained" (TR-6). An explicit cursor that has already been
+   * discarded is unanswerable, and MUST be reported as such rather than silently served
+   * from the floor — a consumer that thinks it resumed from where it left off, but is
+   * actually reading a truncated history, has lost messages without knowing.
+   */
+  #fromCursor(channel: string, cursor: Cursor | undefined): Cursor {
+    this.#requireOwnCursor(cursor, 'cursor');
+    const floor = this.#floors.get(channel) ?? BEGINNING;
+    const requested = cursor ?? BEGINNING;
+    if (requested === BEGINNING) return floor;
+    if (requested < floor) {
+      throw new EappError(
+        'EAPP_CURSOR_TOO_OLD',
+        `cursor '${requested}' precedes the retained floor '${floor}' on channel '${channel}'`,
+      );
+    }
+    return requested;
   }
 
   /** Allocate the next position. Shared by messages and state writes so the log is total. */
@@ -115,6 +186,7 @@ export class MemoryTransport implements StateTransport {
     this.#changeLog(channel).push(change);
     this.#heads.set(channel, change.revision);
     this.#anchors.set(channel, change.revision);
+    this.#trim(channel);
     this.#notify(channel);
   }
 
@@ -161,6 +233,7 @@ export class MemoryTransport implements StateTransport {
     log.push({ cursor, payload: msg });
     this.#messages.set(channel, log);
     this.#anchors.set(channel, cursor);
+    this.#trim(channel);
     this.#notify(channel);
     return cursor;
   }
@@ -171,7 +244,7 @@ export class MemoryTransport implements StateTransport {
     pattern: Pattern,
   ): Promise<TransportMessage[]> {
     this.#requireOwnCursor(cursor, 'cursor');
-    const from = cursor ?? BEGINNING;
+    const from = this.#fromCursor(channel, cursor);
     const log = this.#messages.get(channel) ?? [];
     return log
       .filter((entry) => entry.cursor > from)
@@ -186,9 +259,9 @@ export class MemoryTransport implements StateTransport {
 
   async resolveAnchor(channel: string, anchor: CursorAnchor): Promise<Cursor> {
     if (anchor === 'earliest') {
-      // Retention is unbounded, so the earliest position is always serviceable. A
-      // compacting transport would throw EAPP_CURSOR_TOO_OLD here instead.
-      return BEGINNING;
+      // With a retention window, "earliest" is the floor, not the beginning: the earlier
+      // positions are gone and pretending otherwise would hand back an unreadable cursor.
+      return this.#floors.get(channel) ?? BEGINNING;
     }
     if (anchor === 'latest') {
       return this.#anchors.get(channel) ?? BEGINNING;
@@ -344,7 +417,7 @@ export class MemoryTransport implements StateTransport {
     pattern: StatePattern,
   ): Promise<StateChange[]> {
     this.#requireOwnCursor(cursor, 'cursor');
-    const from = cursor ?? BEGINNING;
+    const from = this.#fromCursor(channel, cursor);
     const log = this.#changes.get(channel) ?? [];
     return log
       .filter((change) => this.compareRevision(change.revision, from) > 0)

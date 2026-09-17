@@ -120,19 +120,19 @@ v3.2.0-state         invariant 84/84 covered   gate PASS
 | C7 Constraints | `Constraint` 类型存在，但 `constraints` 的匹配语义未实现 |
 | 跨进程 Transport | 只实现 Memory（`durabilityBoundary: 'process'`）。Socket / Redis / NATS 未实现 |
 | CRDT | v3.2 §12.4 已裁定其 `supportsStateRevision = false`，属于 Extension |
-| 日志压缩 | 能力声明里有 `stateRetention`，但内存实现是 `unbounded`，`EAPP_CURSOR_TOO_OLD` 无产生点 |
 | Trust Domain 权限 | v3.0 §8.2 只冻结了 trust level 的分类语义，未冻结授权 |
-| `persistent` / `ordering` / `durabilityBoundary` 未守卫 | TR-4 已对 `delivery` 落地（见 §8），但这三个能力标志仍只被类型检查，没有运行时守卫 |
+| `persistent` / `ordering` / `durabilityBoundary` 未守卫 | TR-4 已对 `delivery` 落地，但这三个能力标志仍只被类型检查，没有运行时守卫 |
 
 ### 已经关掉的缺口
 
-下面三项曾列在本节，现已实现并有回归测试：
+下面五项曾列在本节，现已实现并有回归测试。
 
 | 项 | 关闭方式 |
 |---|---|
 | ~~TR-4 部分未落实~~ | `assertTransportSupportsDelivery()` 在 `createChannel` 中校验 `capabilities.delivery`。未声明 `atLeastOnce` 的 Transport 不能承载 `stream` / `state` Channel —— 而这正是 TR-3「MUST NOT 伪装支持」要防的事 |
 | ~~`EAPP_CHANNEL_DRAINING` 不可达~~ | `ChannelImpl.requireActive()` 现在把三种状态区分开：`CLOSED` → `EAPP_CHANNEL_CLOSED`，`DRAINING` → `EAPP_CHANNEL_DRAINING`，`OPEN` → `EAPP_CHANNEL_INVALID`。并且它被真正调用了：`runtime.publish()` / `subscribe()` 在 DRAINING 的 Channel 上会失败 —— 这是 CC-2 + §2.4「DRAINING = 停止接收新消息」的直接后果 |
 | ~~`EAPP_CURSOR_INVALID` 不可达~~ | `MemoryTransport` 校验收到的 cursor 必须由本实例签发（`readAfter` / `readChangesAfter` / `resolveAnchor`）。接受一个外来 cursor 会静默读到错的位置，或什么都读不到 |
+| ~~日志压缩未实现、`EAPP_CURSOR_TOO_OLD` 无产生点~~ | `MemoryTransport` 支持 `retention: { kind: 'window', entries: n }`，并在**两个日志上同时**执行，保持位置域一致。`stateRetention` 能力声明实际反映配置。已被删除的具体 cursor → `EAPP_CURSOR_TOO_OLD`；`'earliest'` 解析为保留起点。v3.1 §6.2 规则 7 明确了"MUST NOT 静默替换为保留起点"及 floor 的精确语义 |
 | ~~未消费的 `StateDeleteRequest`~~ | 已删除。冻结规范 §11 用的是位置参数，这个类型没有任何规范依据 |
 
 ---
