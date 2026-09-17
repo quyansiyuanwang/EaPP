@@ -19,7 +19,7 @@
 | 看能跑的例子 | [示例索引](../examples/README.md) |
 | 写一个插件 | [指南：写一个插件](./guides/write-a-plugin.md) |
 | 换一种传输 | [指南：实现一个 Transport](./guides/write-a-transport.md) |
-| 用别的语言实现这个协议 | [指南：用另一种语言实现 EaPP](./guides/implement-in-another-language.md) |
+| 用别的语言实现这个协议 | [指南：用另一种语言实现 EaPP](./guides/implement-in-another-language.md) · [一致性 harness](../conformance/README.md) |
 | 查某个实体的确切语义 | [参考](#参考) |
 | 读冻结的规范正文 | [规范](#规范) |
 | 知道当前实现到什么程度 | [一致性报告](./CONFORMANCE.md) |
@@ -126,5 +126,9 @@ docs/
 └── CONFORMANCE.md 一致性声明
 
 examples/          可运行且自检的示例；pnpm run examples
-packages/          参考实现；tests/ 是一致性套件
+packages/          TypeScript 参考实现（参考实现之一，不是协议本身）
+implementations/   独立实现（Go）；证明"协议可以被别人实现"
+conformance/       语言中立的 harness 与 driver 协议
+tests/             一致性套件（对参考实现的不变量覆盖）
+tools/             冻结闸门与链接闸门
 ```

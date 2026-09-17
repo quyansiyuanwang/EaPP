@@ -144,6 +144,42 @@ SU-7 / TS-6: CAS is atomic under concurrency
 
 ---
 
+## 4.1 不用翻译测试：跑语言中立的 harness
+
+上面第 1 步是最贵的一步 —— 把四份 TypeScript 测试翻成另一种语言，翻的过程中
+很容易把参考实现的**习惯**当成规范的要求。仓库里有一件更好的东西：
+
+```bash
+pnpm run conformance:external
+```
+
+它按 [driver 协议](../../conformance/driver.md) 拉起一个**可执行文件**，
+用 JSON lines 问它问题，只看它答什么。harness 本身是一个不 import 任何
+`@eapp/*` 的 Node 脚本 —— 所以它检查的只有协议的表面行为。
+
+你要做的不是翻译测试，而是**实现一个 driver**：stdin 收请求、stdout 回响应、
+启动时先说一句 hello。所有操作、数据形状与错误码都在那页里定死了。
+
+```bash
+node conformance/harness/run.mjs --driver "<你的可执行文件>" --cwd <工作目录>
+node conformance/harness/run.mjs --list              # 有哪些检查项
+node conformance/harness/run.mjs --only B-3          # 只跑一条
+```
+
+`hello.layers` 里没写 `core` 的话，Core 的检查会**跳过而不是判失败** ——
+没实现的层不该被算成失败。
+
+**覆盖到哪里、哪里没覆盖，都写在 [`conformance/README.md`](../../conformance/README.md) 里**，
+逐条列的是 v3.0 的 51 条不变量。别把它当"覆盖率 80%"那种数字读：
+没覆盖的每一**条**都写了为什么，其中 B-8（唯一性检查与创建必须原子）是一条
+**并发**要求，而串行的 stdio driver 结构上表达不了它 —— 那条你得自己在语言里测。
+
+参考实现自己也有一个 driver（`conformance/drivers/reference.ts`）。它在那儿是为了
+**证明 harness 公平**：只有一套实现被检查时，一条恰好编码了它习惯的检查看起来
+就像规范要求。两套独立实现跑同一批检查，这件事才会暴露 —— 它确实暴露了（见那份 README）。
+
+---
+
 ## 5. 几个具体陷阱
 
 **`exactOptionalPropertyTypes` 那个坑不是 TypeScript 特有的。**
