@@ -74,8 +74,8 @@ pnpm run conformance:external # 语言中立的 harness：33 条检查 × 2 套�
 pnpm run demo                 # 端到端演示：三个互不相识的插件
 ```
 
-`pnpm run verify` 共五段（typecheck / test / examples / check:invariants / check:docs），
-第四段是冻结闸门（`tools/check-invariants.mjs`），它执行
+`pnpm run verify` 共六段（typecheck / test / examples / check:invariants / check:docs
+/ conformance:external），第四段是冻结闸门（`tools/check-invariants.mjs`），它执行
 v3.0 §19.2 的冻结义务——**每个不变量 MUST 至少有一个对应的测试用例**。
 它从每份规范的「不变量（冻结全集）」小节提取声明，与对应测试集中出现的 ID 做集合差，
 差集非空即失败；同时拒绝空测试体。

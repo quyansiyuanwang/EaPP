@@ -10,9 +10,8 @@
 
 ```bash
 pnpm install
-pnpm run verify               # typecheck + 一致性套件 + 五个示例 + 两道闸门
-pnpm run conformance:external # 语言中立的 harness，跑两套独立实现
-pnpm run demo                 # 三个互不相识的插件，端到端跑一遍
+pnpm run verify   # typecheck + 一致性套件 + 5 个示例 + 两道闸门 + 跨实现一致性
+pnpm run demo     # 三个互不相识的插件，端到端跑一遍
 ```
 
 ---
@@ -137,13 +136,13 @@ pnpm run typecheck              tsc --noEmit（strict + exactOptionalPropertyTyp
 pnpm test                       vitest（直接跑源码）
 pnpm run check:invariants       冻结闸门
 pnpm run check:docs             文档链接闸门
-pnpm run conformance:external   跨实现一致性（Go + TypeScript）
+pnpm run conformance:external   跨实现一致性（Go + TypeScript），verify 的最后一段
 pnpm run examples               5 个示例，各自自检
-pnpm run verify                 以上（除 conformance:external 外）全部
+pnpm run verify                 以上全部
 pnpm run demo                   端到端演示
 ```
 
-Node ≥ 20 · pnpm 10 · TypeScript 7 · vitest 5 · Go 1.24+（只在跑 Go 实现时需要）。
+Node ≥ 20 · pnpm 10 · TypeScript 7 · vitest 5 · Go 1.24+（`verify` 最后一段要跑它）。
 
 ---
 

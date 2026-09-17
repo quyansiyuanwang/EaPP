@@ -50,22 +50,34 @@ pnpm install
 pnpm run verify    # ← 这就是"绿"的唯一定义
 ```
 
-`pnpm run verify` 依次执行三件事：
+`pnpm run verify` 依次执行六件事，**任何一段失败都会中断后面的段**：
 
 ```
-pnpm run typecheck        tsc --noEmit，strict + exactOptionalPropertyTypes
-pnpm test                 vitest（直接跑源码，无需先 build）
-pnpm run check:invariants 冻结闸门
+pnpm run typecheck           ① tsc --noEmit，strict + exactOptionalPropertyTypes
+pnpm test                    ② vitest（直接跑源码，无需先 build）
+pnpm run examples            ③ 5 个示例真的跑得起来，且各自的自检成立
+pnpm run check:invariants    ④ 冻结闸门：每条不变量至少一个测试
+pnpm run check:docs          ⑤ 文档链接闸门
+pnpm run conformance:external ⑥ 跨实现一致性：33 条检查 × 2 套独立实现
 ```
+
+第 ⑥ 段会 `go run` 那个独立实现，所以**跑 verify 需要 Go 1.24+**。
 
 其他命令：
 
 ```bash
-pnpm run demo             # 端到端演示：三个互不相识的插件
-pnpm test -- --watch      # 监听模式
+pnpm run demo                        # 端到端演示：三个互不相识的插件
+pnpm run example:cross-process       # 5 个真进程，跨进程演示
+pnpm run conformance:list            # 跨实现检查覆盖了哪些不变量
+pnpm test -- --watch                 # 监听模式
 ```
 
-工具链：Node ≥ 20、pnpm 10、TypeScript 7、vitest 5。
+工具链：Node ≥ 20、pnpm 10、TypeScript 7、vitest 5、Go 1.24+。
+
+**改了 `packages/` 里的东西，第 ⑥ 段会告诉你有没有破坏别的实现。** 它不 import
+任何 `@eapp/*`，所以它看见的是协议表面 —— 参考实现内部怎么改都行，
+改了行为它就会红。手册见 [`conformance/README.md`](conformance/README.md)：
+覆盖了 51 条 v3.0 不变量中的哪 40 条，以及每一条没覆盖的**为什么**。
 
 ---
 

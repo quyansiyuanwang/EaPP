@@ -14,9 +14,11 @@
 | Node.js | `>= 20` | `package.json` 的 `engines.node`；CI 用 22 |
 | pnpm | 10 | `.github/workflows/verify.yml`（`pnpm/action-setup@v4`） |
 | TypeScript | 仓库自带的 `typescript@^7.0.2`，无需全局安装 | `devDependencies` |
+| Go | `>= 1.24` | 第 ⑥ 段要 `go run` [独立实现](../../implementations/go/)；只跑前五段的话不需要 |
 
-不需要构建步骤：一致性套件、演示与 `tsx` 都**直接跑 `packages/*/src` 下的源码**，
+不需要构建步骤：一致性套件、示例与 `tsx` 都**直接跑 `packages/*/src` 下的源码**，
 别名映射写在 `vitest.config.ts` 与 `tsconfig.json` 的 `paths` 里。
+Go 那份也不需要预先编译 —— 第 ⑥ 段用 `go run` 直接拉起 driver。
 
 ---
 
@@ -36,18 +38,19 @@ CI 使用 `pnpm install --frozen-lockfile`；本地要复现 CI 的行为时用�
 pnpm run verify
 ```
 
-它是四段串联（`package.json` 的 `verify` 脚本），**任何一段失败都会中断后面的段**：
+它是六段串联（`package.json` 的 `verify` 脚本），**任何一段失败都会中断后面的段**：
 
 | 段 | 命令 | 这一段在验证什么 |
 |---|---|---|
 | ① 类型 | `pnpm run typecheck` | `tsc -p tsconfig.json --noEmit`。strict + `exactOptionalPropertyTypes`；成功时**没有任何输出** |
-| ② 一致性套件 | `pnpm run test` | `vitest run`。4 个文件，按规范分层组织（core / interaction / state / runtime 端到端） |
-| ③ 示例 | `pnpm run examples` | 三个[示例](../../examples/README.md)真的跑得起来，且各自的自检全部成立 |
+| ② 一致性套件 | `pnpm run test` | `vitest run`。按规范分层组织（core / interaction / state / socket / runtime 端到端） |
+| ③ 示例 | `pnpm run examples` | [示例](../../examples/README.md)真的跑得起来，且各自的自检全部成立 |
 | ④ 冻结闸门 | `pnpm run check:invariants` | v3.0 §19.2 的冻结义务：**每个不变量 MUST 至少有一个对应的测试用例** |
 | ⑤ 文档链接闸门 | `pnpm run check:docs` | 相对链接是否都能落到真实文件；只查相对链接，不联网 |
+| ⑥ 跨实现一致性 | `pnpm run conformance:external` | 用**不 import 任何 `@eapp/*`** 的 harness，按 [driver 协议](../../conformance/driver.md) 黑盒检查两套独立实现 |
 
 具体条数以命令输出为准 —— 文档里的数字会过期，闸门不会。
-写这份文档时是 4 个文件 174 条测试、209 条不变量、421 条链接。
+写这份文档时是 199 条测试、209 条不变量、459 条链接、33 条跨实现检查 × 2 套实现。
 
 第 ④ 段不是"覆盖率数字"，而是一组集合判定：它从每份规范末尾的
 「不变量」小节提取声明的 ID（v3.0 / v3.2 的标题是「不变量（冻结全集）」，
