@@ -190,7 +190,7 @@ TR-3  Transport MUST NOT 伪装支持。
 > - 只有 `assertCapability(transport, 'cursor' | 'lease')` 是**导出供调用方使用**的，
 >   参考实现内部没有自动调用点。自己不调它，"这个 Transport 支不支持 cursor" 就没人问过。
 >
-> 见 §9.2 的检查清单。
+> 见 §10.2 的检查清单。
 
 `StateTransportCapabilities` 在之上再加六个字段，每个 flag **恰好**对应一个强制后果（TS-2），
 闸门在最早的调用点执行：
@@ -216,7 +216,7 @@ set with supportsStateRevision=false -> EAPP_STATE_UNSUPPORTED
 
 ---
 
-## 4. Cursor 契约（这一节是这一页的核心）
+## 4. Cursor 契约
 
 ### 4.1 契约本身
 
@@ -339,8 +339,8 @@ TR-1  Transport MUST NOT 定义 Interaction 语义。
 | "这个写入是 CAS 的，所以我要合并冲突" | v3.2 [`StateChannel`](../reference/state-channel.md)/CAS；Transport 只负责**原子地**执行比较与写入 |
 | "这是 State Mode，我要在这里做快照" | State Mode 的 `snapshot` / `restore`；Transport 只提供 `head` 与钉住写入 |
 
-一句话：**Transport 只搬字节、分配位置。**
-一个"聪明"的传输会把上层语义埋进最难被替换、最难被测试的地方。
+**Transport 只搬字节、分配位置。**
+把上层语义下沉到传输层，会把它们埋进整条链路中最难替换、也最难测试的位置。
 
 ---
 
@@ -799,7 +799,7 @@ TS-5  A Transport MUST NOT declare stateConsistency = 'strong'
 
 ---
 
-## 7.1 真的跨进程：一个可运行的例子
+## 8. 跨进程实现
 
 上面每一节都还在一个进程里。跨过去之后有几件事会变，而且是**静默地**变 ——
 这是本仓库里第二个 Transport（`@eapp/transport-socket`）存在的原因。
@@ -869,7 +869,7 @@ releaseServerRole(channel: string): Promise<void>;
 
 ---
 
-## 8. 修订顺序不是全序时：`supportsStateRevision: false`
+## 9. 修订顺序不是全序时：`supportsStateRevision: false`
 
 这是全页最容易踩、后果最严重的一条：
 
@@ -907,7 +907,7 @@ supportsStateSnapshot: false,   // ← restore 依赖 nextRevision，所以快�
 
 ---
 
-## 9. 合规性检查清单
+## 10. 合规性检查清单
 
 ### 9.1 先跑仓库自带的两道闸门
 
@@ -984,79 +984,12 @@ pnpm run check:invariants # 冻结闸门：每条不变量至少对应一个测�
 
 ---
 
-## 10. 用另一种语言实现 EaPP
-
-> 本节回答一个问题：**不写 TypeScript 能不能实现 EaPP？** 能。
-> 协议是规范，不是库；`packages/` 只是它的一份证据。
-
-### 10.1 什么是规范性的，什么是实现自由
-
-| 类别 | 内容 | 实现自由度 |
-|---|---|---|
-| **规范性** | 三份 FROZEN 规范里的语义与不变量：五个本体、四种模式、Cursor / 投递 / Lease、Revision / CAS / 删除可见性、能力声明与闸门 | 无。不变量是判定标准，不是建议 |
-| **规范性（形状）** | 身份是 `{domain, id, instance}`；模式信封的字段名与含义；`EAPP_*` 错误码不得重命名或改义 | 无。跨语言互通靠的就是这些名字 |
-| **实现自由** | 数据结构、并发模型、id 如何生成、cursor 的具体形状、传输协议、序列化格式、`waitForChange` 存不存在 | 完全自由 |
-| **不可实现的部分** | 不变量要求"存在一个测试"（v3.0 §19.2 的冻结义务） | 须自建测试，见 §10.3 |
-
-三条**语言无关**的硬约束，任何语言都必须满足：
-
-1. **引用传递**：`Identity`、`Binding`、`Cursor`、`Revision` 都是**值语义**的可比较标识，
-   不是对象引用。跨进程传它们时，接收方必须能独立判断相等与顺序。
-2. **`Cursor` / `Revision` 的可比较性**：`compareCursor` / `compareRevision` 的语义必须被实现
-   （字符串是最省事的选择，但任何全序表示都可以），并且**必须拒绝外来值**
-   （REV-8：比较两个不同 transport 实例签发的 revision MUST 抛 `EAPP_REVISION_INVALID`）。
-3. **显式失败**：不支持的能力必须抛码，不允许静默降级。
-   这条最容易在"静态类型不表达错误码"的语言里被忽略 ——
-   用异常、错误值或返回联合都可以，但**必须能被调用方区分出来**。
-
-### 10.2 可以不同、但必须写下来的地方
-
-- **错误传播机制。** TypeScript 用 `EappError` 类 + `code` 字段；Go 用
-  `(value, error)` 且 `errors.As` 能取出 code；Rust 用 `Result<T, EappError>`。
-  规范要求的是**码可被调用方读取**，不是某种异常类型。
-- **异步模型。** 规范里的 `Promise<...>` 是"最终会给出结果"的意思。
-  Rust 的 `async fn`、Go 的 goroutine + channel、Erlang 的消息传递都能承载它。
-- **`Subscription` 的形态。** `for await` 是异步迭代器；任何"逐条交付 + 逐条 ack"的
-  迭代接口都等价。关键是 `AckContext` 的两个方法 `ack()` / `nack()` 都要在。
-- **`Capability.constraints` 的匹配语义**是 Core 里最窄的一种：`kind` 字符串相等 +
-  `value` 结构相等（C-7，`packages/core/src/discovery.ts` 的 `constraintSatisfied()`）。
-  更丰富的匹配（范围、偏序、谓词）属于 Extension，MUST NOT 混入 Core ——
-  所以照抄这一条是**必需**的，不要自己发明一套。
-
-### 10.3 用一致性套件当正确性规范
-
-`tests/conformance/` 里的用例**就是**规范的可执行形式：
-大多数测试都在名字里标注它检验的不变量 ID（`core.test.ts` 覆盖 v3.0 层 51 条、
-`interaction.test.ts` 74 条、`state.test.ts` 84 条，另有 `runtime.test.ts` 做端到端；
-覆盖面见 [一致性报告](../CONFORMANCE.md)）。
-
-> 不变量总数是 **51 + 74 + 84 = 209**。层数（51）不等于测试条数
-> （`core.test.ts` 有 41 条）—— 一条测试可以覆盖多条不变量，也有测试不对应任何不变量。
-
-移植建议：
-
-```
-① 读 ID，不读实现。测试名里的 `CR-3`、`TS-4` 比测试体更重要 ——
-   那是规范里的规则，测试体只是它的一种触发方式。
-② 以目标语言重写这些触发方式，保留"性质"断言。
-   不要断言 cursor 的字面值、不要断言 id 的生成顺序。
-③ 用 pnpm run check:invariants 的输出当移植清单：
-   每条不变量都应当能在目标语言中找到至少一个对应用例。
-④ 一致性报告 §6「尚未实现」里的东西不在声明内（CRDT、Trust Domain 权限、
-   以及跨进程的 ConsumerGroup）。实现 MAY 不做，但 MUST NOT 声称已完成 ——
-   尤其在跨进程的情况下：把做不到的那部分做成明确失败，而不是给一个安静的错答案。
-```
-
-一句话：**规范是唯一的裁决者，一致性套件是它的证据。
-实现需要满足的不是"与参考实现一致"，而是"在被检验的性质上一致"。**
-
----
-
 ## 相关
 
 - [概念：三层心智模型](./concepts.md) —— 特别是 §2（层与层的方向）与 §7（什么不属于 Core）
-- [写一个插件](./write-a-plugin.md) —— 上面那一层看到的世界
-- [快速上手](./getting-started.md) —— 默认 Transport 的实测输出
+- [写一个插件](./write-a-plugin.md) —— 上层所见的接口
+- [快速上手](./getting-started.md) —— 参考 Transport 的实际输出
+- [用另一种语言实现 EaPP](./implement-in-another-language.md) —— 以其他语言实现本层与上层
 - [`Transport`](../reference/transport.md) · [`Cursor`](../reference/cursor.md) ·
   [`Channel`](../reference/channel.md) · [`Delivery`](../reference/delivery.md) ·
   [`Lease`](../reference/lease.md) · [`ConsumerGroup`](../reference/consumer-group.md) ·

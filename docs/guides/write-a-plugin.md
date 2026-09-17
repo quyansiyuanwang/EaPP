@@ -536,7 +536,7 @@ handler 抛出的错误会在响应信封里变成一个**码**，调用方看�
 | 假设发现等于可调用 | D-3 / D-5：发现不是组合，也不替代 Binding |
 | 把 Binding 状态"设"成某个值 | 它由三件事派生。想让它变成 `ACTIVE`，去让两端 `ACTIVE` 且 `from` 仍暴露该能力 |
 | 在 handler 里假设 `payload` 的形状 | `payload` 是 `unknown`；Core 不做 schema 校验 |
-| 假设同一条 Channel 只有一个消费者 | 排他性由 [`ConsumerGroup`](../reference/consumer-group.md) + [`Lease`](../reference/lease.md) 表达，不在插件内部发明 —— 用 `runtime.openConsumerGroup()`，见 §8.1 |
+| 假设同一条 Channel 只有一个消费者 | 排他性由 [`ConsumerGroup`](../reference/consumer-group.md) + [`Lease`](../reference/lease.md) 表达，不在插件内部发明 —— 用 `runtime.openConsumerGroup()`，见 §9 |
 | 依赖 `onEvent` 之类的声明式钩子 | **没有这个字段**，见下 |
 
 **没有 `onEvent` 钩子，这是有意的。** 早期版本声明过一个，
@@ -561,7 +561,7 @@ for await (const message of subscription) {
 
 ---
 
-## 8.1 一条 Channel，多个消费者：`ConsumerGroup`
+## 9. 一条 Channel，多个消费者：`ConsumerGroup`
 
 `subscribe()` 回答"**谁在**参与"。如果一个问题变成"**谁和谁在竞争**" ——
 一个工作池里有多个成员、每条消息只能被处理一次 ——
@@ -617,7 +617,7 @@ for await (const message of member) {
 
 ---
 
-## 9. 一页速查
+## 10. 一页速查
 
 ```
 注册   runtime.register(module)                       → PluginRef      （权威身份）

@@ -112,8 +112,9 @@ const REGISTER_ALLOWED = new Set(['docs/STYLE.md', 'docs/reference/_TEMPLATE.md'
 /** Unambiguous markers of conversational register. Judgement calls are left to review. */
 const REGISTER_RULES = [
   { pattern: /你/g, why: '第二人称（STYLE §5：直接陈述约束，不面向读者说话）' },
-  { pattern: /说白了|就是说吧|别用|别把|这不是吗/g, why: '口语化措辞' },
-  { pattern: /说到底|归根结底就是/g, why: '修辞性收束' },
+  { pattern: /说白了|就是说吧|别用|别把|别当|别以为|这不是吗/g, why: '口语化措辞' },
+  { pattern: /说到底|归根结底就是|才算数|这件事本身/g, why: '修辞性收束' },
+  { pattern: /^一句话[：:]|一句话版本/g, why: '修辞性收束' },
 ];
 
 const register = [];
