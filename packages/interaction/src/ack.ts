@@ -32,6 +32,7 @@ export interface LocalAckHooks {
 export class LocalAck implements AckContext {
   #state: AckState = 'PENDING';
   #closed = false;
+  #terminated = false;
   readonly #hooks: LocalAckHooks;
 
   constructor(hooks: LocalAckHooks = {}) {
@@ -46,7 +47,21 @@ export class LocalAck implements AckContext {
     return this.#closed;
   }
 
+  get terminated(): boolean {
+    return this.#terminated;
+  }
+
+  #requireLive(): void {
+    // AK-5: a TERMINATED context is gone for good (its lease expired, its channel
+    // closed underneath it). This is deliberately different from `close()`, which is the
+    // subscription-shutdown path handled by SUB-8.
+    if (this.#terminated) {
+      throw new EappError('EAPP_LEASE_CLOSED', 'AckContext has been terminated');
+    }
+  }
+
   async ack(): Promise<void> {
+    this.#requireLive();
     if (this.#closed) return; // SUB-8 / SW-12
     if (this.#state === 'ACKED') return; // AK-1 idempotent
     if (this.#state === 'NACKED') {
@@ -57,6 +72,7 @@ export class LocalAck implements AckContext {
   }
 
   async nack(): Promise<void> {
+    this.#requireLive();
     if (this.#closed) return; // SUB-8 / SW-12
     if (this.#state === 'NACKED') return; // AK-2 idempotent
     if (this.#state === 'ACKED') {
@@ -69,5 +85,10 @@ export class LocalAck implements AckContext {
   /** Called by the owning subscription when it closes. Not part of `AckContext`. */
   close(): void {
     this.#closed = true;
+  }
+
+  /** Terminal. Not part of `AckContext`. */
+  terminate(): void {
+    this.#terminated = true;
   }
 }

@@ -42,6 +42,13 @@ export interface CreateChannelRequest {
 export interface BindingSource {
   binding(id: string): { readonly id: string } | undefined;
   bindingState(id: string): 'ACTIVE' | 'DORMANT' | 'CLOSED';
+  /**
+   * CC-2: when a Binding reaches CLOSED its Channels MUST immediately close.
+   * Returns an unsubscribe function.
+   */
+  onBindingStateChange?(
+    listener: (bindingId: string, state: 'ACTIVE' | 'DORMANT' | 'CLOSED') => void,
+  ): () => void;
 }
 
 export interface InteractionLayer {
@@ -72,6 +79,16 @@ export class InteractionLayerImpl implements InteractionLayer {
     this.#transport = options.transport;
     this.#bindings = options.bindings;
     this.#nextId = options.nextId ?? (() => `ch-${++channelSeq}`);
+
+    // CH-2 / CC-2: a Channel never outlives its Binding. Binding state is DERIVED by the
+    // Composition Core (v3.0 §6.4), so this layer reacts to the notification rather than
+    // polling or recomputing it.
+    options.bindings?.onBindingStateChange?.((bindingId, state) => {
+      if (state !== 'CLOSED') return;
+      for (const channel of this.#channels.values()) {
+        if (channel.binding === bindingId) void channel.close();
+      }
+    });
   }
 
   get transport(): Transport {

@@ -400,7 +400,7 @@ describe('DEL: delete', () => {
 // SW — StateWatcher
 // =============================================================================
 describe('SW: StateWatcher', () => {
-  test('SW-1 / SW-2 / SW-3 / SUB-9: it is a v3.1 Subscription whose kind is state', async () => {
+  test('SW-1 / SW-2 / SW-3 / SUB-9 / API-5: watch returns a v3.1-compatible Subscription', async () => {
     const { ch } = await makeChannel();
     const watcher = await ch.watch({ key: 'k' });
     expect(watcher.kind).toBe('state');
