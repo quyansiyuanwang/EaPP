@@ -2,117 +2,109 @@
 
 **Everything as a Plugin Protocol** — 万物皆插件协议
 
-> 一套三层插件协议：**Composition Core** 定义谁和谁组合，**Interaction Layer** 定义组合后如何互动，
-> **State Mode** 定义如何共享状态。三层单向依赖，每层可独立替换。
+> 一份协议规范：**Composition Core** 定义谁和谁组合，**Interaction Layer** 定义组合建立之后如何互动，
+> **State Mode** 定义如何共享状态，**插件开发表面** 把前三部分的操作在形状上钉死。
 > 任何语言、任何运行时、任何传输，只要实现这些语义，就能互通。
->
-> 本目录下的文本是**规范性**的：它规定语义，不规定实现；合规性是实现的行为属性。
 
 ---
 
 ## 从哪里开始
 
-| 我想… | 读这个 |
+| 目的 | 读这个 |
 |---|---|
-| 搞懂这个协议在说什么 | [概念：三层心智模型](./guides/concepts.md) |
-| 跑起来看看 | [快速上手](./guides/getting-started.md) |
-| 看能跑的例子 | [示例索引](../examples/README.md) |
+| 搞懂这个协议在说什么 | [概念：分卷与五个操作](./guides/concepts.md) |
+| 从零开始 | [快速上手](./guides/getting-started.md) |
 | 写一个插件 | [指南：写一个插件](./guides/write-a-plugin.md) |
 | 换一种传输 | [指南：实现一个 Transport](./guides/write-a-transport.md) |
-| 用别的语言实现这个协议 | [指南：用另一种语言实现 EaPP](./guides/implement-in-another-language.md) · [一致性 harness](../conformance/README.md) |
+| 用别的语言实现这个协议 | [指南：用另一种语言实现 EaPP](./guides/implement-in-another-language.md) |
 | 表达协议之外的语义 | [指南：写一个 Extension](./guides/write-an-extension.md) |
 | 查某个实体的确切语义 | [参考](#参考) |
-| 读冻结的规范正文 | [规范](#规范) |
-| 知道当前实现到什么程度 | [一致性报告](./CONFORMANCE.md) |
+| 读规范性文本 | [规范](./spec/eapp.md) |
+| 知道为什么这样定 | [设计依据](./rationale.md) |
+| 提出语义变更 | [变更提案](../rfcs/README.md) |
+| 知道文档怎么写 | [文档标准](./STYLE.md) |
 
 ---
 
 ## 参考
 
-每个实体一页。页首给出行号级来源（规范小节 + 实现文件 + 测试文件），
-正文给签名、语义、不变量、错误、可运行示例。
+`docs/reference/` 下的每一页是一个**索引页**：它说明实体是什么、定义它的规范小节、
+它的不变量前缀，以及常见误用。**字段与签名不在那里** —— 它们在规范正文里，
+复述一份会随规范改动的字段表是漂移的来源。
 
-### Composition Core — v3.0
+### Composition Core — 第 I 部分
 
-| 实体 | 回答的问题 |
-|---|---|
-| [`Identity`](./reference/identity.md) | 这是**谁**？（不含版本） |
-| [`Capability`](./reference/capability.md) | 它能**做什么**？ |
-| [`Plugin`](./reference/plugin.md) | 什么样的东西可以被组合？ |
-| [`Binding`](./reference/binding.md) | **谁和谁**建立了关系？ |
-| [`Lifecycle`](./reference/lifecycle.md) | 它**是否参与**当前组合？ |
-| [`Discovery`](./reference/discovery.md) | 有哪些东西**可以被**组合？ |
-| [`CompositionCore`](./reference/composition-core.md) | 以上一切的操作入口 |
+| 实体 | 回答的问题 | 规范 |
+|---|---|---|
+| [`Identity`](./reference/identity.md) | 这是**谁**？ | §6 |
+| [`Capability`](./reference/capability.md) | 它能**做什么**？ | §7 |
+| [`Plugin`](./reference/plugin.md) | 什么样的东西可以被组合？ | §8 |
+| [`Binding`](./reference/binding.md) | **谁和谁**建立了关系？ | §9 |
+| [`Lifecycle`](./reference/lifecycle.md) | 它**是否参与**当前组合？ | §10 |
+| [`Discovery`](./reference/discovery.md) | 有哪些东西**可以被**组合？ | §11 |
+| [`CompositionCore`](./reference/composition-core.md) | 以上一切的操作入口 | §12 |
 
-### Interaction Layer — v3.1
+### Interaction Layer — 第 II 部分
 
-| 实体 | 回答的问题 |
-|---|---|
-| [`Channel`](./reference/channel.md) | 交互发生在**哪里**？ |
-| [`Subscription`](./reference/subscription.md) | **谁在**参与？ |
-| [`ConsumerGroup`](./reference/consumer-group.md) | **谁和谁在竞争**？ |
-| [`Delivery`](./reference/delivery.md) | 一次投递**保证**什么？ |
-| [`Lease`](./reference/lease.md) | 这份工作**谁领了**、领到什么时候？ |
-| [`Cursor`](./reference/cursor.md) | 恢复到**哪里**？ |
-| [`AckContext`](./reference/ack-context.md) | 如何**确认**一件事已经完成？ |
-| [`Transport`](./reference/transport.md) | 消息**物理上怎么走**？ |
-| [模式消息](./reference/messages.md) | request / event / stream 各自的**信封** |
+| 实体 | 回答的问题 | 规范 |
+|---|---|---|
+| [`Channel`](./reference/channel.md) | 交互发生在**哪里**？ | §22 |
+| [模式消息](./reference/messages.md) | request / event / stream 各自的**信封** | §23.1 |
+| [`Delivery`](./reference/delivery.md) | 一次投递**保证**什么？ | §24 |
+| [`Lease`](./reference/lease.md) | 这份工作**谁领了**、领到什么时候？ | §25 |
+| [`Cursor`](./reference/cursor.md) | 恢复到**哪里**？ | §26 |
+| [`Subscription`](./reference/subscription.md) | **谁在**参与？ | §27 |
+| [`ConsumerGroup`](./reference/consumer-group.md) | **谁和谁在竞争**？ | §28 |
+| [`AckContext`](./reference/ack-context.md) | 如何**确认**一件事已经完成？ | §29 |
+| [`Transport`](./reference/transport.md) | 消息**物理上怎么走**？ | §30 |
 
-### State Mode — v3.2
+### State Mode — 第 III 部分
 
-| 实体 | 回答的问题 |
-|---|---|
-| [`StateCell`](./reference/state-cell.md) | 共享的**是什么**？ |
-| [`Revision`](./reference/revision.md) | 它的**版本**是什么？ |
-| [`StateUpdate`](./reference/state-update.md) | 一次**变更**是什么？ |
-| [`StateWatcher`](./reference/state-watcher.md) | 如何**观察**？ |
-| [`StateChannel`](./reference/state-channel.md) | 状态模式的**操作面** |
-| [`StateSnapshot`](./reference/state-snapshot.md) | 如何**取快照与恢复**？ |
-| [`StateTransport`](./reference/state-transport.md) | Transport 要**额外**提供什么？ |
+| 实体 | 回答的问题 | 规范 |
+|---|---|---|
+| [`Revision`](./reference/revision.md) | 它的**版本**是什么？ | §37 |
+| [`StateCell`](./reference/state-cell.md) | 共享的**是什么**？ | §38 |
+| [`StateUpdate`](./reference/state-update.md) | 一次**变更**是什么？ | §39 |
+| [`StateWatcher`](./reference/state-watcher.md) | 如何**观察**？ | §41 |
+| [`StateChannel`](./reference/state-channel.md) | 状态模式的**操作面** | §44 |
+| [`StateSnapshot`](./reference/state-snapshot.md) | 如何**取快照与恢复**？ | §43 |
+| [`StateTransport`](./reference/state-transport.md) | Transport 要**额外**提供什么？ | §45 |
 
 ---
 
 ## 规范
 
-`docs/spec/` 下的是**规范性文本**。参考页解释它们，示例演示它们；
+`docs/spec/eapp.md` 是**唯一规范性正文**。参考页解释它，指南演示它；
 两者冲突时**以规范为准**。
 
-| 文档 | 状态 | 内容 |
-|---|---|---|
-| [v3.0.0-core](./spec/v3.0.0-core.md) | **FROZEN** | 五个本体、Discovery、Composition/Lifecycle 操作 |
-| [v3.1.0-interaction](./spec/v3.1.0-interaction.md) | **FROZEN** | Channel / Subscription / ConsumerGroup / Delivery / Lease / Cursor |
-| [v3.2.0-state](./spec/v3.2.0-state.md) | **FROZEN** | State Mode：CAS 冲突策略、Snapshot/Restore |
-| [版本索引与变更记录](./spec/CHANGELOG.md) | — | 三层之间的修订、勘误与映射 |
-| [决议记录](./analysis/DECISIONS-v3.2.0-r3.md) | — | 每条规则**为什么**是这样 |
-| [变更提案](../rfcs/README.md) | — | 改变语义的提案，及 §18.3 的评审落点 |
+```
+分卷             §4–§21    Composition Core
+                 §22–§34   Interaction Layer
+                 §35–§49   State Mode
+                 §50–§54   插件开发表面
 
+附录             A 术语表 · B 不变量全集 · C 冻结语义答案 · D 错误码全集
+
+协议版本         3.4.0
+状态             FROZEN；3.4.0 引入的分卷 IV 尚未取得评审，见 CHANGELOG.md
 ```
-规范性（normative）       docs/spec/
-非规范性（non-normative） docs/reference/ · docs/guides/ · docs/analysis/ · docs/CONFORMANCE.md
-```
+
+读取顺序的两点约定：
+
+- **记法**见 §1.2：操作签名为 `op(args) -> result`，数据结构为逐字段表格，签名不标注异步性。
+- **不变量的标识**见 §1.3：`XX-1` 形如的标识符在整个协议范围内唯一、稳定，测试与一致性声明都以它为准。
 
 ---
 
-## 一致性
+## 规范性与非规范性
 
-> v3.0 §19.2（冻结条款）：**每个不变量 MUST 至少有一个对应的测试用例。**
-
-这不是口号，是一条可执行的判定：
-
-```bash
-pnpm run check:invariants
+```
+规范性（normative）       docs/spec/
+非规范性（non-normative） docs/reference/ · docs/guides/ · docs/rationale.md · docs/STYLE.md
 ```
 
-它从每份规范的「不变量（冻结全集）」小节提取声明的 ID，
-与该层一致性测试中出现的 ID 求集合差；**差集非空、或存在空测试体，即冻结失败**。
-
-| 层 | 不变量 | 覆盖 |
-|---|---|---|
-| v3.0.0-core | 51 | **51 / 51** |
-| v3.1.0-interaction | 75 | **75 / 75** |
-| v3.2.0-state | 84 | **84 / 84** |
-
-完整声明、合规等级与已登记的偏离见 [一致性报告](./CONFORMANCE.md)。
+非规范性文档 MUST NOT 引入新规则，也 MUST NOT 逐字复制规范正文。
+发现某条语义无处可依时，那说明规范缺一条 —— 补规范，不要在文档里发明它。
 
 ---
 
@@ -120,16 +112,15 @@ pnpm run check:invariants
 
 ```
 docs/
-├── guides/        非规范性：教程与操作指南
-├── reference/     非规范性：实体参考（每实体一页）
-├── spec/          规范性：冻结的协议文本
-├── analysis/      非规范性：设计与评审记录
-└── CONFORMANCE.md 一致性声明
+├── guides/        非规范性：按任务组织的指南
+├── reference/     非规范性：实体索引，一实体一页
+├── spec/eapp.md   规范性：唯一的协议正文
+├── rationale.md   非规范性：每条规则的依据
+└── STYLE.md       非规范性：文档标准
 
-examples/          可运行且自检的示例；pnpm run examples
-packages/          TypeScript 参考实现（参考实现之一，不是协议本身）
-implementations/   独立实现（Go）；证明"协议可以被别人实现"
-conformance/       语言中立的 harness 与 driver 协议
-tests/             一致性套件（对参考实现的不变量覆盖）
-tools/             冻结闸门与链接闸门
+rfcs/              改变语义的提案
+tools/             两个文档闸门
 ```
+
+实现、示例与跨实现检查工具在 `reference` 分支上：
+<https://github.com/quyansiyuanwang/EaPP/tree/reference>

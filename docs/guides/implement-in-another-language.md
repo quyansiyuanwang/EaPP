@@ -1,256 +1,204 @@
 # 用另一种语言实现 EaPP
 
-> **本页的读者**：以 Go / Rust / Java / Python 等语言实现 EaPP 的开发者。
-> 内容为三部分 —— 哪些部分必须逐字遵守，哪些可以自行决定，以及如何验证实现的正确性。
+> **本页的读者**：以 Go / Rust / Java / Python 等语言实现 EaPP 的实现方。
+> 规则本身在 [`docs/spec/eapp.md`](../spec/eapp.md) 里；本页只说清
+> 必须逐字遵守的部分、实现方自由决定的部分，以及各语言都容易做错的地方。
+
+前置阅读：[概念：三层心智模型](./concepts.md)。
+本页属于非规范性文档，与规范冲突时以规范为准。
 
 ---
 
-## 1. 实现对象
+## 1. 实现对象与合规等级
 
-三层是**单向依赖**的，所以可以实现其中一部分：
+四部分单向依赖（§1.1）：`Composition Core → Interaction Layer → State Mode → Transport`。
+第 IV 部分不是第四层，它是前三部分已经要求过的操作在形状上的**剖面**（§50）。
+只实现其中一部分是允许的，代价是声明面变小。
 
-```
-Composition Core   谁和谁组合              ← 先做这个
-      ↓
-Interaction Layer  组合后如何互动          ← 再做这个
-      ↓
-State Mode         如何共享状态            ← 最后做这个
-```
+| 部分 | 等级 | 语义 |
+|---|---|---|
+| 第 I 部分 | `C1` Core | Identity / Capability / Plugin / Binding / Lifecycle / Discovery（§17） |
+| 第 I 部分 | `C2` Derived Binding | Binding 状态派生 + OPEN / CLOSED 基础属性（§17） |
+| 第 I 部分 | `C3` Lifecycle Closure | activate / suspend / resume / deactivate 语义闭合（§17） |
+| 第 I 部分 | `C4`–`C8` | Trust Scope、Discovery Events、Atomic Bind、Constraints、Bootstrap（§17） |
+| 第 II 部分 | `I1` Channel · `I2` Delivery · `I6` Subscription | `MUST`（§34） |
+| 第 II 部分 | `I3` Lease · `I4` Cursor · `I7` ConsumerGroup | `SHOULD`（§34） |
+| 第 II 部分 | `I5` Transport Capability | `MAY`（§34） |
+| 第 III 部分 | 无等级前缀 | 覆盖度由不变量计数表达（§3.2） |
+| 第 IV 部分 | `CS1`–`CS5` | Discovery / Connection / Lifecycle / Messaging / Invocation（§53） |
 
-**只实现 Composition Core 是合法的。** 一个只做组合、不做消息的系统仍然可以宣称
-符合 C1–C3。反之不行 —— 没有 Binding 就派生不出 Channel。
+两条容易漏掉的约束：实现 MUST 支持 `C1`–`C3`，SHOULD 支持 `C4`–`C6`，MAY 支持 `C7`–`C8`（§17）；
+承载 `state` / `stream` Channel 的实现 MUST 满足 `I4`，即使它在其他模式下只声明 `SHOULD`（§34）。
+`CS1`–`CS5` 与前面各层有蕴含关系（§53）：声明 `CS2` 的实现 MUST 声明 `C1`、`C2`，
+反向地，声明 `C1`、`C2`、`C3`、`I1`、`I6` 中任一等级的实现 MUST 声明由它蕴含的表面等级（`OP-9`）。
 
 ---
 
 ## 2. 规范性 vs 实现自由
 
-这是最容易出错的地方。界限是：
+规范规定**行为**，不规定**内部形态**。下列内容规范没有规定：
 
-| 类别 | 是否规范 | 例子 |
-|---|---|---|
-| **语义** | 规范 | "Binding 状态 MUST 派生，MUST NOT 被直接设置" |
-| **不变量** | 规范 | 全部 210 条，逐条编号 |
-| **错误码** | 规范 | `EAPP_REVISION_CONFLICT` 必须是这个字符串 |
-| **数据形状** | 规范 | `Identity` 正好三个字段 `domain` / `id` / `instance` |
-| **语言类型** | **自由** | TS 里是 `interface`，Go 里可以是 `struct`，Rust 里可以是 `struct` + trait |
-| **并发模型** | **自由** | actor、goroutine、线程池、协程都可以 |
-| **序列化格式** | **自由** | JSON / Protobuf / MessagePack / 自定义二进制 |
-| **存储布局** | **自由** | 内存 / SQL / KV / 文件 |
-
-**判据**：如果一条规则改变后，两个实现互相之间会产生**不同结果**，它就是语义，必须规范。
-如果只是内部怎么放，就是实现自由。
-
-### 2.1 三条与语言无关的硬约束
-
-以下三条对任何语言都成立，且不属于上表的"自由"一栏。
-
-1. **标识必须是值语义。** `Identity`、`Binding`、`Cursor`、`Revision` 都是可比较的标识值，
-   不是对象引用。跨进程传递时，接收方必须能独立判断相等与顺序。
-   以指针或对象身份实现相等性，在跨进程场景下必然失效。
-2. **顺序由 Transport 提供。** `compareCursor` / `compareRevision` 的语义必须实现，
-   且必须拒绝外来值 —— REV-8 要求比较两个不同 Transport 实例签发的 revision 时
-   抛 `EAPP_REVISION_INVALID`。见 §3.1。
-3. **不支持必须显式失败。** 这条在"静态类型不表达错误码"的语言里最容易被忽略。
-   异常、错误值、返回联合都可以，但**码必须能被调用方读取**；
-   静默降级在跨实现场景下等价于数据损坏。
-
----
-
-## 3. 五件各语言都容易做错的事
-
-### 3.1 `Revision` 与 `Cursor` 必须**不透明**
-
-`Revision = string`，`Cursor = string`。它们是**同一个域上的同一类型** ——
-一次写入在 Channel 状态日志中的位置。
-
-```
-MUST      把 revision 当作不透明 token：存储它、传回它、用 transport 比较它
-MUST NOT  解析它、拼接它、自己生成它、用 < 直接比较它
-MUST NOT  跨 Transport 比较它
-```
-
-以整数或时间戳实现较为自然，但**不可采用** ——
-一旦消费者开始依赖其内部结构，一个实现细节就被冻结成了跨实现契约。
-
-比较**必须**由 Transport 提供：`compareRevision(a, b) → -1 | 0 | 1`，
-并且当任一参数不是本 Transport 实例签发的值时必须拒绝。
-
-### 3.2 Binding 状态是**派生**的，不是存储的
-
-不要把 `state` 字段存进 Binding 然后赋值。它由三件事算出来：
-
-```
-CLOSED   ⟸ 已被显式 unbind
-ACTIVE   ⟸ 未被 unbind ∧ from 是 ACTIVE ∧ to 是 ACTIVE ∧ from 仍暴露该 Capability
-DORMANT  ⟸ 其余情况
-```
-
-实现成字段会引入一整类无法调试的状态不同步。**算出来，别存。**
-
-### 3.3 `expectedRevision: null` 不等于"当前不存在"
-
-```
-null       key 从未存在过
-Revision   key 存在且 revision 精确匹配
-```
-
-**已逻辑删除的 key 仍然算"存在"**，所以 `null` 不能复活它 —— 复活必须携带旧 revision。
-把它读成"当前不存在"会写成 `if (current != null && !current.deleted)`，
-于是逻辑删除变成复活，而 `DEL-5` 的分支永远走不到。
-
-### 3.4 删除**不是** `set(deleted: true)`
-
-必须是一等原语。原因很具体：Transport 要能区分"删除"与"创建"，
-否则下面两条无法同时成立：
-
-```
-delete 不存在的 key，expectedRevision = null  → EAPP_STATE_KEY_NOT_FOUND
-set    不存在的 key，expectedRevision = null  → 成功
-```
-
-把 delete 实现成 set 的语法糖，第一个错误码就永远产生不出来。
-
-### 3.5 `get` 必须**返回**已删除的 cell
-
-```
-key 从未存在   → null
-key 存在       → 返回 cell，含 deleted: true 或 false
-```
-
-如果 `get` 对已删除返回 `null`，那么"删除已删除的 key 是 no-op 成功"这一分支
-永远不可达 —— 因为调用方拿不到那个 key 的 revision。
-
----
-
-## 4. 一致性套件的判定标准
-
-不要只对着规范正文写实现。规范说**规则是什么**，
-`tests/conformance/` 说**怎样算做到了**。
-
-```bash
-pnpm run check:invariants    # 210 条不变量各自对应哪个测试
-```
-
-读这四个文件，它们是各层的验收清单：
-
-| 文件 | 覆盖 |
+| 实现自由 | 说明 |
 |---|---|
-| `tests/conformance/core.test.ts` | 51 条（v3.0） |
-| `tests/conformance/interaction.test.ts` | 75 条（v3.1） |
-| `tests/conformance/state.test.ts` | 84 条（v3.2） |
-| `tests/conformance/runtime.test.ts` | 端到端场景 |
+| 语言与运行时 | 规范适用于任何语言、任何运行时（§文件头） |
+| 目录布局与包名 | 规范不规定测试框架、语言或目录结构（§3.1） |
+| 序列化格式 | JSON / Protobuf / MessagePack / 自定义二进制都可行 |
+| 存储布局 | 内存 / SQL / KV / 文件都可行 |
+| 进程模型与并发模型 | actor、协程、线程池、独立进程都可行 |
+| 测试框架 | 测试由实现方提供，位于实现方的仓库（§3.1） |
 
-**测试名包含不变量 ID**，可逐条对照实现情况：
+与自由相对的是**跨实现契约**：§1.2 规定字段名与操作名是跨实现契约的一部分 ——
+实现 MUST 使用规范给出的名字，MUST NOT 改名或改义。操作的结果类型也由规范给出，
+`1.2` 的记法不标注异步性：一个操作是否 MUST 在返回之前完成语义效果，由该操作的条款规定。
 
-```
-CG-6: an expired claim returns to the group on its own
-REV-8: revisions are not comparable across transports
-SU-7 / TS-6: CAS is atomic under concurrency
-```
-
-### 建议的移植顺序
-
-1. 把四份测试**翻译成目标语言**，先不写实现，只让它们编译通过。
-2. 实现 `@eapp/core` 的五个本体，让 `core.test.ts` 的 51 条全绿。
-3. 实现一个内存 Transport，让 `interaction.test.ts` 的 75 条全绿。
-4. 实现 State Mode，让 `state.test.ts` 的 84 条全绿。
-
-这个顺序不是随意的：每层只依赖下层，所以每步都有完整的绿灯可依赖。
+规范正文里另有若干**非规范性表格**（例如 §30.3 与 §46.4 的能力矩阵）：
+它们描述自洽组合的形状，MUST NOT 被读成"某个传输必须落在某一行"。
 
 ---
 
-## 4.1 不用翻译测试：跑语言中立的 harness
+## 3. 各语言都容易做错的地方
 
-上面第 1 步是最贵的一步 —— 把四份 TypeScript 测试翻成另一种语言，翻的过程中
-很容易把参考实现的**习惯**当成规范的要求。仓库里有一件更好的东西：
+### 3.1 Cursor 与 Revision 是不透明值
 
-```bash
-pnpm run conformance:external
+`Cursor` 的字面形式由实现定义，消费者 MUST NOT 解析它（§26.1）；
+`Revision` 同样是不透明标识，其字面形式由 Transport 定义（§37）。
+两条不变量直接约束这一点：
+
+```
+REV-5  Revision MUST be opaque to consumers.
+REV-8  Revision MUST NOT be compared across Transports.
 ```
 
-它按 [driver 协议](../../conformance/driver.md) 拉起一个**可执行文件**，
-用 JSON lines 问它问题，只看它答什么。harness 本身是一个不 import 任何
-`@eapp/*` 的 Node 脚本 —— 所以它检查的只有协议的表面行为。
+因此：把位置解析成整数、时间戳或"层级编号"，会把实现细节冻结成跨实现契约；
+把来自另一个 Transport 实例的值拿来比较，MUST 失败而不是排出一个错误顺序。
+比较 MUST 由 Transport 提供（§37.2、`TS-8`），`compareRevision(a, b)` 的两个入参
+不是本实例签发的值时 MUST 返回 `EAPP_REVISION_INVALID`（§37.2，对应 `REV-8`）。
 
-需要的不是翻译测试，而是**实现一个 driver**：stdin 收请求、stdout 回响应、
-启动时先说一句 hello。所有操作、数据形状与错误码都在那页里定死了。
+**类型上也要留出这个自由度。** 若把 `Revision` 声明成 `int64` 或 `Uuid`，
+调用方迟早会开始对它做算术或排序，而这些用法在别的实现上不成立。
 
-```bash
-node conformance/harness/run.mjs --driver "<可执行文件>" --cwd <工作目录>
-node conformance/harness/run.mjs --list              # 有哪些检查项
-node conformance/harness/run.mjs --only B-3          # 只跑一条
+### 3.2 `find` 的 `version` 是 SemVer range
+
+`Criteria.version` 的类型是 string，语义是 **SemVer range**（§11.1）。
+它 MUST NOT 被读成"精确匹配的版本串"：`CapabilityRef` 携带的是具体版本（`C-5`），
+而 §11.1 的 `version` 是它的取值范围。
+
+实现上，这意味着需要一段 range 求值逻辑（`^1.2.0`、`>=1.2.0 <2` 之类），
+而不是一次字符串相等比较。另一条约束在 `C-2`：
+
+```
+C-2  Capability.version MUST be valid SemVer.
 ```
 
-`hello.layers` 里没写 `core` 的话，Core 的检查会**跳过而不是判失败** ——
-没实现的层不该被算成失败。
+因此版本在**声明侧** MUST 是合法 SemVer，range 语法则在**查询侧**出现。
+把两侧都实现成字符串相等比较，会让"声明 `1.2.0`、查询 `^1.0.0`"这种正确用法查不到东西。
 
-**覆盖到哪里、哪里没覆盖，都写在 [`conformance/README.md`](../../conformance/README.md) 里**，
-逐条列的是 v3.0 的 51 条不变量。该清单不是覆盖率数字：
-未覆盖的每一条均注明原因，其中 B-8（唯一性检查与创建必须原子）是一条
-**并发**要求，而串行的 stdio driver 结构上无法表达它 —— 该条须在实现语言内自行测试。
+### 3.3 `expectedRevision` 的 `null` 只表示"从未存在"
 
-参考实现自己也有一个 driver（`conformance/drivers/reference.ts`）。它在那儿是为了
-**证明 harness 公平**：只有一套实现被检查时，一条恰好编码了它习惯的检查看起来
-就像规范要求。两套独立实现跑同一批检查，这件事才会暴露 —— 它确实暴露了（见那份 README）。
+```
+null       → key MUST NOT 曾经存在
+Revision   → key MUST 存在，且其 revision MUST 精确匹配
+```
+
+`null` 是一个独立取值，MUST NOT 被实现为 `''` / `'0'` / `-1`（§39.2），
+也 MUST NOT 被用来复活一个已逻辑删除的 key —— 复活必须携带旧 revision（§39.2）。
+CAS 的判定表在 §39.2 与 §40.2 中给出，其中"从未存在"与"存在但 revision 不匹配"
+是**不同的失败**：`delete` 对从未存在的 key 且 `expectedRevision = null` 返回
+`EAPP_STATE_KEY_NOT_FOUND`（`DEL-4`），其余不匹配返回 `EAPP_REVISION_CONFLICT`（`CF-2`）。
+合成一个码，调用方就分不清"调用错误"与"CAS 竞争"，而两者的重试策略相反。
+重试策略由 `EAPP_REVISION_CONFLICT` 的 `retryable = true` 表达（§47）：CAS 冲突可以重试，
+`EAPP_STATE_KEY_NOT_FOUND` 不可以。
+
+### 3.4 `value` 的存在性按属性存在判定
+
+```
+SU-2  StateUpdate MUST have a 'value' property or set deleted = true.
+      'value' 的存在性 MUST 按属性存在判定，MUST NOT 用 value !== undefined 判定。
+      （因此 { value: undefined } 是合法写入，有明确语义。）
+```
+
+这与 `expectedRevision` 的三态是同一类问题：**缺席**与**存在但为空值**是两个不同的事实。
+在静态语言里，这要求类型能表达三层状态（例如可选值再包一层可选），
+而不是一个可空引用。"没有 value 且没有 `deleted`" MUST 失败（`SU-2`），
+"同时带 `value` 与 `deleted: true`" MUST 返回 `EAPP_STATE_VALUE_INVALID`（`SU-3`）。
+
+### 3.5 `suspend` MUST NOT 断开 Binding
+
+```
+LC-5  SUSPENDED MUST NOT unbind.
+OP-6  activate / deactivate / suspend / resume 的语义 MUST 与 §10 一致；
+      suspend MUST NOT 断开 Binding。
+```
+
+`suspend` 只把 Plugin 置为 `SUSPENDED`，其所有 Binding 派生为 `DORMANT`（`O-7`、§9.4）；
+对应 Channel 进入 `DRAINING` 而不是 `CLOSED`（§22.4），因此恢复时 MUST 回到 `ACTIVE`。
+把它实现成"断开连接"或"关闭 Channel"，会让恢复路径丢失在途消息，
+也会让 `resume` 无从重新评估 Binding（`O-8`）。
+从 `SUSPENDED` 回到 `ACTIVE` MUST 走 `resume`，`activate` 只适用于 `INACTIVE`（`LC-6`）。
+
+### 3.6 不支持的路径 MUST 显式失败
+
+`TR-3` 规定 Transport MUST NOT 伪装支持；`TS-3` 对状态能力给出同样的要求。
+能力标志在 `false` 时的强制行为写在 §46.2，其中每个标志恰好对应一个运行时后果（`TS-2`）。
+"不支持"在跨实现场景中等价于数据损坏：静默降级会产出一个形式正确、语义错误的结果，
+而调用方无从察觉。异常、错误值、返回联合都可以，**错误码必须能被调用方读取**。
 
 ---
 
-## 5. 几个具体陷阱
+## 4. 一致性声明必须写什么
 
-**`exactOptionalPropertyTypes` 那个坑不是 TypeScript 特有的。**
-`StateUpdate` 的 `value` 字段用**属性存在性**判断，不是 `value != null`：
+§3.2 规定实现声称合规时 MUST 声明五个字段：
 
-```
-{ value: undefined }   是合法写入，语义明确
-{}                     非法 —— 必须给 value 或 deleted
-```
+| 字段 | 类型 | 语义 |
+|---|---|---|
+| `eappVersion` | string | 实现所覆盖到的协议版本 |
+| `levels` | string[] | 已声明的合规等级 |
+| `testSuite` | string | 所用一致性测试套件的标识与版本 |
+| `passed` | number | 通过的测试用例数 |
+| `total` | number | 测试用例总数 |
 
-Go 里用 `*T` 或 `sql.Null` 之类表达；Rust 里用 `Option` 但要注意 `Option<Option<T>>` 的模式。
-关键是**三态**：缺席 / 存在且为 undefined / 存在且有值。
+三条约束：
 
-**CAS 必须在 Transport 里原子完成。**
-不要在 Channel 层"读一次、比一下、再写" —— 那是 TOCTOU。
+1. **`levels` 只允许出现本文件定义过的等级。** 第 I 部分定义 `C1`–`C8`，
+   第 II 部分定义 `I1`–`I7`，第 IV 部分定义 `CS1`–`CS5`；
+   State Mode 不定义等级前缀（§3.2）。声明一个规范没有定义过的等级不是扩展，是伪造合规。
+2. **`eappVersion` 报告的是覆盖到的版本。** 只实现 Composition Core 的实现报告 `3.0.0`，
+   覆盖全部分卷的实现报告当前版本；两者都能满足声明要求，而声明的强弱不同（§3.2）。
+3. **`passed` / `total` 统计的是不变量覆盖，不是测试条数。** 每个不变量 MUST 至少有一个
+   对应的测试用例，不适用的不变量 MUST NOT 被静默省略：要么补测试，
+   要么在一致性声明中登记为未覆盖并给出理由（§3.1）。
 
-**无等待的轮询会炸。**
-未 ack 的项会被反复重投。参考实现踩过这个坑：堆溢出（OOM）。
-节流到 `pollIntervalMs`，或在支持时用 `waitForChange`。
-
-**订阅循环要先注册兴趣再读。**
-先读后等会丢失唤醒：写入落在"读"与"等"之间时，通知在无人监听时发出，
-随后的等待就会永远阻塞。参考实现踩过这个坑。
-
----
-
-## 6. 声明合规
-
-任何实现都可以自称实现 EaPP —— **本协议不设认证机构**。
-这与"它是一个协议，不是一个产品"是一致的。
-
-但声明应当可验证。本仓库的声明长这样（v3.0 §19.3 的冻结接口）：
-
-```json
-{ "eappVersion": "3.3.0",
-  "levels": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "I1", "I2", "I3", "I4", "I5", "I6", "I7"],
-  "testSuite": "conformance@3.3.0",
-  "passed": 210, "total": 210 }
-```
-
-`levels` MUST 只列规范定义过的等级：v3.0 §15 定义 `C1`–`C8`，v3.1 §15 定义 `I1`–`I7`。
-v3.2 没有定义独立的等级前缀。规范里不存在的等级 MUST NOT 被声明 ——
-本仓库此前误写过 `"S1"`，它在任何一份规范中都不存在，已删除。
-
-`passed` / `total` 统计的是**不变量覆盖**，不是测试条数 ——
-因为闸门判定的是覆盖。若实现仅包含 Composition Core，
-就声明 `levels: ["C1","C2","C3"]` 并给出那一层的覆盖数字。
-
-**不要声明没做的层。** 见 [`docs/CONFORMANCE.md`](../CONFORMANCE.md) §6 的做法：
-本仓库明确列出了自己**没有**实现的东西。
+本仓库不设认证机构：规范不要求任何第三方签署。声明是可验证的承诺，不是许可证。
 
 ---
 
-## 7. 相关
+## 5. 如何验证
 
-- [概念：三层心智模型](./concepts.md)
-- [实现一个 Transport](./write-a-transport.md)
-- [参考](../README.md#参考) —— 每个实体的确切语义
-- [规范](../spec/v3.0.0-core.md) —— 唯一裁决者
+**本仓库不再自带实现，也不自带跨实现检查工具。** 工作分支上只有规范与文档；
+参考实现与跨实现检查工具在
+[`reference` 分支](https://github.com/quyansiyuanwang/EaPP/tree/reference)（tag `reference-3.3.0`）。
+它们是**另一个实现的经验**，不是规则的来源：与规范冲突时以规范为准。
+
+因此验证有三条可行的路径：
+
+1. **按 §3.1 自建判定。** 规范要求每个不变量至少有一个可执行的判定，且失败可被观察。
+   测试放在实现方自己的仓库里，框架与语言由实现方决定。这是规范唯一直接要求的验证形式。
+2. **按不变量 ID 组织测试名。** 不变量标识在整个协议范围内唯一且稳定（§1.3）。
+   把 ID 放进测试名，覆盖清单就能与附录 B 的清单逐条对照。
+   附录 B 是全部不变量的唯一清单，按**首次引入的协议版本**分节。
+3. **按能力矩阵自查。** §30.3 与 §46.4 给出自洽的能力组合；
+   声明的能力与实际行为不一致时，先改声明，再改实现。
+
+实现方还 SHOULD 保留一份"未覆盖的不变量"清单。§3.1 允许不适用，
+但不允许静默 —— 一份写着"哪些没测、为什么没测"的清单，
+比一个漂亮的总数更能说明实现的状态。
+
+---
+
+## 相关
+
+- [概念：三层心智模型](./concepts.md) —— 层与层的方向与分工
+- [实现一个 Transport](./write-a-transport.md) —— 最下面一层的完整契约
+- [`docs/spec/eapp.md`](../spec/eapp.md) —— 唯一规范性正文
+- [`Transport`](../reference/transport.md) · [`Cursor`](../reference/cursor.md) ·
+  [`Revision`](../reference/revision.md) · [`StateUpdate`](../reference/state-update.md)

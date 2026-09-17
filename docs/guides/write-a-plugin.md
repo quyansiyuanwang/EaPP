@@ -1,647 +1,339 @@
 # 写一个插件
 
-> **本页说明如何编写一个可被发现、连接、激活、调用的插件。**
+> 本页说明如何按 §50–§54 的**插件开发表面**写一个插件：插件声明什么、如何被组合、
+> 面对哪些操作、错误如何浮现。
 
-前置阅读：[概念：三层心智模型](./concepts.md)（至少读完第 4 节）。
-本页所有类型与行为都取自参考实现 `packages/runtime/src/{plugin,runtime}.ts`，
-示例是真实可跑的代码，不是伪代码。
+前置阅读：[概念：三层心智模型](./concepts.md)。
+[`docs/spec/eapp.md`](../spec/eapp.md) 是唯一裁决者；本页解释它，不新增规则。
+示例使用 §1.2 的语言中立记法，或明确标注为说明性伪代码。
 
 ---
 
-## 1. 插件是什么：一个契约，不是一种形态
+## 1. 插件是什么（§8）
 
-v3.0 §5.2 明确：Plugin **MUST NOT** 被要求具有同一种实现形态 ——
-它可以是进程内模块、独立进程、worker、远程服务、一台设备。
-所以运行时**只**假设下面这个契约，进程内加载只是它的一种实现方式。
+Plugin 是"一个具有 Identity、可选地暴露 Capability、并参与 Lifecycle 的可组合实体"（§8.2）。
 
-`@eapp/runtime` 给出的进程内契约是
-[`PluginModule`](../../packages/runtime/src/plugin.ts)：
+- 形态不受约束：in-process module、process、worker、remote service、device、runtime、transport、database、AI model、UI component 都可以（§8.2）。协议不要求这些形态的实现方式相同。
+- 每个 Plugin MUST 有唯一 Identity（`P-1`），Identity MUST NOT 在生命周期内改变（`P-3`）。
+- `capabilities` MAY 为空（`P-2`），MAY 通过显式声明更新（`P-4`）。
 
-```typescript
-interface PluginManifest {
-  identity: PluginRef;          // = Identity，三个字段：domain / id / instance
-  capabilities: Capability[];
-}
+Lifecycle 有三个状态：`INACTIVE`、`ACTIVE`、`SUSPENDED`（§10.1）。实现 MAY 扩展 `STARTING` / `STOPPING` / `DRAINING` / `FAILED`，但 MUST NOT 破坏 Core 语义（§10.1）。
 
-/** handler 在服务请求的当下能拿到的东西。 */
-interface InvocationContext {
-  readonly caller: PluginRef;
-  readonly callee: PluginRef;
-  readonly capability: string;
-  readonly correlationId: string;
-}
+四个操作构成状态机（§10.3）：
 
-type RequestHandler = (payload: unknown, context: InvocationContext) => Promise<unknown>;
-
-interface PluginModule {
-  readonly manifest: PluginManifest;
-  activate?(): Promise<void> | void;
-  deactivate?(): Promise<void> | void;
-  suspend?(): Promise<void> | void;
-  resume?(): Promise<void> | void;
-  readonly handlers?: Readonly<Record<string, RequestHandler>>;
-}
-```
-
-逐个字段：
-
-| 字段 | 必填 | 语义 |
+| 操作 | 合法源状态 | 结果 |
 |---|---|---|
-| `manifest.identity` | 是 | 这个插件**是谁**。`domain` / `id` / `instance` 三个字段，**不含版本**（ID-6）。运行时决定最终身份，见 §3 |
-| `manifest.capabilities` | 是 | 这个插件可以参与**什么类型**的组合。MAY 为空数组（P-2）。每项的 `name` 非空、`version` 是 SemVer，可选 `contract` 与 `constraints` |
-| `activate()` | 否 | 进入 `ACTIVE` 后调用 |
-| `deactivate()` | 否 | 离开 `ACTIVE` 时调用；契约要求它**幂等** |
-| `suspend()` / `resume()` | 否 | 离开 / 回到 Active Composition 时调用 |
-| `handlers` | 否 | **按 capability 名索引**的请求处理器（request 模式）。`handlers['greeting.render']` 服务名为 `greeting.render` 的能力 |
+| `activate` | `INACTIVE` only | `ACTIVE` |
+| `deactivate` | `ACTIVE` / `SUSPENDED` / `INACTIVE` | `INACTIVE` |
+| `suspend` | `ACTIVE` only | `SUSPENDED` |
+| `resume` | `SUSPENDED` only | `ACTIVE` |
 
-`Capability` 不是接口。它描述"可以参与什么类型的组合"，
-不是方法列表、不是 RPC 端点、不是 HTTP 路由。契约里的 `handlers` 键名与
-[`Capability`](../reference/capability.md) 的 `name` 对齐，是**本参考实现的约定**，
-不是协议强加的形状。
+`activate` MUST NOT 用于从 `SUSPENDED` 恢复，从 `SUSPENDED` 恢复 MUST 使用 `resume`（§10.3、`LC-6`）。`activate` MUST 幂等（`O-5`），`deactivate` MUST 从任意状态进入 `INACTIVE`（`LC-2`）。
 
 ---
 
-## 2. 完整示例：两个互不相识的插件
+## 2. 声明 Identity（§6）与 Capability（§7）
 
-示例就在仓库里，**可以直接跑**：
+### 2.1 Identity：三个字段，不含版本
 
-```bash
-pnpm run example:first
-# 等价于 npx tsx examples/my-first-plugin/index.ts
-```
+[`Identity`](../reference/identity.md) 由 `domain`、`id`、`instance` 三个字段组成（§6.1）。
 
-它与演示（[`examples/hello-plugins/`](../../examples/hello-plugins/index.ts)）里
-logger / app / metrics 三件套**不同**：这里是 `casing`（纯提供方）与 `greeter`
-（提供方同时又是消费方）。
+- `domain` MUST NOT 为空（`ID-1`）；`id` MUST NOT 为空（`ID-2`）。
+- `instance` MUST 在同一个 `(domain, id)` 内唯一（`ID-3`）。
+- Identity MUST 在其生命周期内保持不变（`ID-4`），MUST NOT 由 Plugin 自身伪造（`ID-5`）。
+- **Identity MUST NOT 承载版本信息**（§6.2、`ID-6`）。版本由 `Capability.version` 表达。
 
-完整文件在 [`examples/my-first-plugin/index.ts`](../../examples/my-first-plugin/index.ts)，
-除了下面这两段，它还在结尾核对本文的每一条断言，并把 §7 的错误表逐行跑出来。
-下面摘的是核心部分。
+插件声明的是 `domain` / `id` / `instance` 这三项载体信息；签发身份的一方在插件之外（`ID-5`）。
 
-> 示例用相对路径导入（`../../packages/...`），这个位置是必需的 —— 相对深度就是按
-> `examples/<name>/index.ts` 写的。仓库根目录没有链接 `@eapp/*` 的 `node_modules`
-> 入口，所以 `tsx` 下只能用相对路径；`@eapp/...` 包名形式只在 `tsc` 与 `vitest` 中
-> 经由 `paths` / alias 可解析，`tests/conformance/*.test.ts` 就是这么写的。
+### 2.2 Capability：可以参与什么类型的组合
 
-```typescript
-import { EappError } from '../../packages/core/src/index.js';
-import { EappRuntime, type PluginModule } from '../../packages/runtime/src/index.js';
+[`Capability`](../reference/capability.md) 有四个字段（§7.1）：`name`（必需）、`version`（必需，SemVer）、`contract`（可选）、`constraints`（可选）。
 
-const CASING = { name: 'casing.apply', version: '1.0.0' };
-const GREETING = { name: 'greeting.render', version: '1.0.0' };
+- `name` MUST NOT 为空（`C-1`）；`version` MUST 是合法 SemVer（`C-2`）。
+- `contract` 是可选上下文，含 `name` 与 `version`（§7.1），用途是给人和工具看的（`C-3`）。Core 不规定它的 `schema` 格式（§7.1）。
+- `constraints` 用于匹配。Core 的匹配语义是最窄的一种：`kind` 相等且 `value` 结构相等（`C-7`）。范围、偏序、谓词属于 Extension，MUST NOT 混入 Core（`C-7`）。
 
-/** 提供 casing.apply：把任意输入变成大写。一个最小的纯提供方。 */
-function casingPlugin(): PluginModule {
-  return {
-    manifest: {
-      identity: { domain: 'acme.text', id: 'casing', instance: 'casing-1' },
-      capabilities: [CASING],
-    },
-    handlers: {
-      'casing.apply': async (payload) => String(payload).toUpperCase(),
-    },
-  };
-}
+Capability 不描述方法列表、RPC 端点或 HTTP 路由（§7.2）。一个 Plugin MAY 暴露多个 Capability，一个 Capability MAY 被多个 Plugin 暴露（§7.3）。
 
-/**
- * 提供 greeting.render，并且**在 handler 内部**去调用 casing.apply ——
- * 它要用到运行时，所以由外部注入一个函数；它自己不知道谁实现了 casing.apply。
- */
-function greeterPlugin(applyCasing: (text: string) => Promise<string>): PluginModule {
-  let active = false;
-  let rendered = 0;
+### 2.3 CapabilityRef：版本 MUST 参与引用
 
-  return {
-    manifest: {
-      identity: { domain: 'acme.greeting', id: 'greeter', instance: 'greeter-1' },
-      capabilities: [{ ...GREETING, contract: { name: 'GreetingPayload', version: '1.0.0' } }],
-    },
+`CapabilityRef` 含 `plugin`、`name`、`version` 三个字段（§7.4）。
 
-    activate() {
-      active = true;
-      console.log('  [greeter] activate()');
-    },
-    async deactivate() {
-      active = false;
-      console.log('  [greeter] deactivate()');
-    },
-
-    handlers: {
-      'greeting.render': async (payload, context) => {
-        // context.caller 是本插件不需要知道的东西 —— 调用方是谁由运行时告诉它。
-        const { name, upper = false } = (payload ?? {}) as { name?: unknown; upper?: unknown };
-        if (typeof name !== 'string' || name.length === 0) {
-          // 抛 EappError：code 会原样跨过 Channel 回到调用方（见 §7）。
-          throw new EappError('EAPP_GREETING_INVALID_NAME', 'payload.name MUST be a non-empty string');
-        }
-        let line = `Hello, ${name}!`;
-        if (upper === true) line = await applyCasing(line);
-        rendered += 1;
-        return { line, total: rendered, correlationId: context.correlationId };
-      },
-    },
-  };
-}
-
-async function main(): Promise<void> {
-  const runtime = EappRuntime.create({ domain: 'eapp.guide' });
-
-  // 先注册提供方，这样 greeter 的 handler 在调用时一定找得到它。
-  const casing = runtime.register(casingPlugin());
-  const greeter = runtime.register(
-    greeterPlugin(async (text) => {
-      const upper = await runtime.invoke({
-        from: greeter,      // 调用方
-        to: casing,         // 能力提供方
-        capability: CASING, // 只写 name/version，plugin 由运行时补上
-        payload: text,
-      });
-      return String(upper);
-    }),
-  );
-  const portal = runtime.register({
-    manifest: { identity: { domain: 'acme.app', id: 'portal', instance: 'portal-1' }, capabilities: [] },
-  });
-
-  // 发现：谁会做 greeting.render？
-  const found = await runtime.discover({ capability: 'greeting.render' });
-  console.log('发现:', found.map((p) => p.id).join(', '));
-
-  // 连接：从能力提供方（from）到消费方（to）建立一个 request 模式的关系。
-  const { binding, channel } = await runtime.connect({
-    from: greeter,
-    to: portal,
-    capability: GREETING,
-    mode: 'request',
-  });
-  console.log('binding =', binding.id, '状态 =', runtime.core.bindingState(binding.id)); // DORMANT
-  console.log('channel =', channel.id, channel.mode, channel.delivery, channel.state);
-
-  await runtime.activate(casing);
-  await runtime.activate(greeter);
-  await runtime.activate(portal);
-  console.log('激活后 binding 状态 =', runtime.core.bindingState(binding.id)); // ACTIVE
-
-  // 调用。
-  const reply = await runtime.invoke({
-    from: portal,
-    to: greeter,
-    capability: GREETING,
-    payload: { name: 'Ada' },
-  });
-  console.log('reply:', JSON.stringify(reply));
-
-  const upper = await runtime.invoke({
-    from: portal,
-    to: greeter,
-    capability: GREETING,
-    payload: { name: 'Grace', upper: true },
-  });
-  console.log('handler 内部再调用:', JSON.stringify(upper));
-
-  await runtime.shutdown();
-}
-
-main().catch((error: unknown) => {
-  console.error('failed');
-  console.error(error);
-  process.exitCode = 1;
-});
-```
-
-实测输出（`binding-1` / `ch-1` 这类 id 按创建顺序递增，`correlationId` 末尾是时间戳，
-所以字面值会变；这里引用的是 `pnpm run example:first` 的真实输出）：
-
-```
-发现: greeter
-binding = binding-1 状态 = DORMANT
-channel = ch-1 request at-most-once ACTIVE
-  [greeter] activate()
-激活后 binding 状态 = ACTIVE
-reply: {"line":"Hello, Ada!","total":1,"correlationId":"invoke-1-…"}
-handler 内部再调用: {"line":"HELLO, GRACE!","total":2,"correlationId":"invoke-2-…"}
-```
-
-注意三件事：`casing` 从来没有被"通知"过 `greeter` 的存在；`greeter` 也从来不知道
-`casing` 的 `domain` 是什么；而 `portal` 完全不知道 `greeting.render` 是**谁**实现的 ——
-它只知道有一个 `greeting.render@1.0.0`。
+- 版本 MUST 参与引用（`C-5`）。同一个 Plugin 可以同时暴露 `logging@1.0.0` 与 `logging@2.0.0`（§7.4）。
+- 版本 MUST 参与 Binding identity（`C-6`）。`casing.apply@1.0.0` 与 `casing.apply@2.0.0` 是两个不同的能力：升级版本不会接管旧关系。
 
 ---
 
-## 3. 声明 manifest 与 capability
+## 3. 被组合：Binding 与 Lifecycle（§9、§10）
 
-声明 manifest 时有三条硬约束：
+### 3.1 Binding 的字段与派生状态
 
-**① Identity 不能自签发。** v3.0 ID-5：`Identity MUST NOT be self-issued`。
-插件在 manifest 里给的是一个**载体**（`domain/id/instance`），
-运行时用 `IdentityRegistry` 铸出真正的
-[`Identity`](../reference/identity.md) 交给注册表：
+`bind(request)` 创建关系，`BindRequest` 含 `from`、`to`、`capability` 与可选的 `contract`（§12.2）。`from` 是提供 Capability 的一方，`to` 是消费它的一方（§9.1）。
 
-```typescript
-// packages/runtime/src/runtime.ts › register()
-const identity = this.#identities.isIssued(module.manifest.identity)
-  ? this.#identities.require(module.manifest.identity)
-  : this.#identities.create({
-      domain: module.manifest.identity.domain,
-      id: module.manifest.identity.id,
-      instance: module.manifest.identity.instance,
-    });
+[`Binding`](../reference/binding.md) 不含命令式的 `state` 字段（§9.1）。稳定语义状态是 `ACTIVE` / `DORMANT` / `CLOSED`（§9.2），由派生规则算出（§9.4）：
+
+```
+CLOSED   已被显式 unbind
+ACTIVE   OPEN，且 from 与 to 都是 ACTIVE，且 from 仍暴露该 Capability
+DORMANT  OPEN，且 ACTIVE 的条件不满足
 ```
 
-所以：
+`PENDING` MAY 作为 `bind()` 的内部事务状态存在，MUST NOT 对外可观察（§9.2、`B-9`）。
 
-- 插件 **MUST NOT** 自己"造"一个身份然后声称它是自己的。`register()` 返回的才是权威身份，
-  用它去做后续的 `connect` / `invoke` / `activate`。
-- `register()` **校验**身份，不是**净化**身份。身份的形状恰好是
-  `domain` / `id` / `instance` 三个字段，多写一个（比如 `version`）会直接抛
-  `EAPP_IDENTITY_INVALID`，而不是被悄悄丢掉。
-  早期版本是丢弃字段的 —— 那让 ID-6（身份不含版本）在最关键的一条路径上静默失效：
-  写错了不会报错，但预期的身份并未生效。
-- 同一 `(domain, id, instance)` 注册两次会被拒绝：`EAPP_IDENTITY_DUPLICATE`（ID-3 / P-1）。
+与插件作者直接相关的约束：
 
-**② Capability 的 SemVer 是真的 SemVer。** `version` 必须是 `major.minor.patch`
-（可带 `-prerelease` / `+build`），`name` 必须非空。校验由
-`assertValidCapability` 完成，失败码是 `EAPP_CAPABILITY_NOT_FOUND`。
-`capabilities` 必须是数组（MAY 为空）；写成一个字符串会直接抛 `EAPP_CAPABILITY_NOT_FOUND`。
+- `from` 与 `to` MUST 是已存在的 Plugin（`B-1`），`capability` MUST 由 `from` 暴露（`B-2`），且 `Binding.capability.plugin` MUST 等于 `Binding.from`（`B-7`）。违反时 `bind()` MUST 以 `EAPP_BINDING_INVALID` 失败（§9.7）。
+- 同一 `(from, to, capability)` 在任意时刻 MUST NOT 有多个非 `CLOSED` Binding（`B-6`），唯一性检查与创建 MUST 原子（`B-8`）。并发 `bind` 时，最多一个创建新的非 CLOSED Binding，其他请求 MUST 返回既有 Binding 或以 `EAPP_BINDING_DUPLICATE` 失败（§9.8）。
+- `unbind(bindingId)` MUST 把 Binding 置为 `CLOSED`（`O-3`）且 MUST 幂等（`O-4`）；`CLOSED` 是终结状态（`B-4`）。
+- Binding MUST NOT 声明消息方向、同步或异步、投递保证与序列化格式（§9.9）。那些属于 [`Channel`](../reference/channel.md)。
 
-**③ 版本是绑定身份的一部分。** `{ name: 'casing.apply', version: '1.0.0' }` 与
-`{ name: 'casing.apply', version: '2.0.0' }` 是两个不同的能力（C-5 / C-6）。
-升级版本不会"接管"旧关系，而会让旧 [`Binding`](../reference/binding.md) 因为
-`from` 不再暴露旧版本而派生为 `DORMANT`。
+### 3.2 Lifecycle 如何影响 Binding
 
-可选的 `contract` 是**给人和工具看的上下文**（C-3）：它有两个必填字段 `name` 与 `version`，
-可以携带 `schema`。Core 不校验 `schema`，也不做代码生成 —— 见 [概念 §7](./concepts.md)。
+- Plugin 进入 `INACTIVE` 或 `SUSPENDED` 时，它的所有 Binding 派生为 `DORMANT`（§9.6、`O-6`、`O-7`）。`deactivate` 与 `suspend` 对 Binding 的效果相同（§9.6）。
+- Plugin 回到 `ACTIVE` 时，所有 Binding MUST 被重新评估（`O-8`）。
+- `deactivate` MUST NOT 直接 CLOSE Binding（§10.4）；`SUSPENDED` MUST NOT 解除 Binding（`LC-5`、`OP-6`）。
+
+因此"先 `bind` 后 `activate`"是正常顺序：`bind` 之后 Binding 处于 `DORMANT`，两端 `activate` 之后它自行变为 `ACTIVE`。
 
 ---
 
-## 4. 请求处理器与 `InvocationContext`
+## 4. 插件作者面对的操作（§51）
 
-`handlers` 的每个值都是 `RequestHandler`：
+五组操作，名称与参数取自 §51 与各自的定义处。
 
-```typescript
-type RequestHandler = (payload: unknown, context: InvocationContext) => Promise<unknown>;
+### 4.1 发现：`find` / `watch`（§11.1、§12.2）
+
+```
+find(criteria, scope)    ->  PluginRef 列表
+watch(criteria, scope)   ->  DiscoveryEvent 流
 ```
 
-`payload` 是 `unknown`：协议不在这一层定义 schema 校验（那属于 RPC / Extension）。
-处理它之前先自己校验，像示例里的 `typeof name !== 'string'`。
+`Criteria` 的字段（§11.1）：`capability`（能力名）、`version`（SemVer range）、`constraints`（逐条按 `C-7` 匹配）、`identity`（Identity 的字段子集，出现的字段相等）。
 
-`context` 由运行时填好后传进来，四个字段都是**只读**的：
+`DiscoveryScope` 含 `trustLevel`（`L0` / `L1` / `L2`）与 `trustDomain`（§11.1）。它们是信任分类，MUST NOT 被解释为 `L2 > L1 > L0` 的数值等级，也不得自动推导出 `L2 can access L1` 这类结论（§11.2、`D-7`）。
 
-| 字段 | 是什么 | 谁来填 |
+`DiscoveryEvent` 含 `type` 与 `plugin`；`type` MUST 是 `added` / `removed` / `changed` 之一（§11.1、`D-6`）。
+
+`find` MUST 只返回当前 Trust Scope 内可见的 Plugin（`D-1`），`watch` MUST 只对当前 Trust Scope 内的事件触发（`D-2`）。Discovery MUST NOT 保证"发现即可组合"（`D-3`），MUST NOT 成为 Binding 的替代品（`D-5`）。
+
+### 4.2 连接：`bind` / `unbind` / `createChannel`（§12.2、§32）
+
+```
+bind(request)            ->  Binding
+unbind(bindingId)        ->  ()
+createChannel(request)   ->  Channel
+```
+
+`CreateChannelRequest` 含 `binding`（`Binding.id`，来自 `bind()`）、`mode` 与可选的 `delivery`（§32）。
+
+- `binding` MUST 是已存在且未被 `CLOSED` 的 Binding。不存在时 MUST 返回 `EAPP_BINDING_INVALID`（`CC-6`），已 `CLOSED` 时 MUST 返回 `EAPP_BINDING_CLOSED`（`CC-7`）。
+- `mode` MUST 由调用方显式指定，取 `request` / `event` / `stream` / `state` 之一（`CC-3`、§22.1）。
+- `delivery` 省略时，`stream` 与 `state` 推导为 `at-least-once`，其余推导为 `at-most-once`（`CC-4`）。给 `stream` / `state` 指定 `at-most-once` MUST 返回 `EAPP_DELIVERY_UNSUPPORTED`（`CC-5`、`DL-6`）。
+- Channel 创建后处于 `OPEN`，`connect()` 后进入 `ACTIVE`（`CC-8`）。一个 Binding MAY 派生多个 Channel，各自 `mode` 不同（`CC-9`）。
+- `mode` 与 `delivery` MUST NOT 在 Channel 生命周期内改变（`CH-5`、`CH-6`）。
+
+### 4.3 激活：四个操作（§12.2）
+
+```
+activate(plugin)     ->  ()
+deactivate(plugin)   ->  ()
+suspend(plugin)      ->  ()
+resume(plugin)       ->  ()
+```
+
+合法源状态与结果见第 1 节的表（§10.3）。四个操作的语义 MUST 与 §10 一致（`OP-6`）；`suspend` MUST NOT 断开 Binding（`OP-6`、`LC-5`）。
+
+### 4.4 通信：`send` / `subscribe` 与消费单元的 `ack` / `nack`
+
+```
+send(channel, msg)                   ->  Cursor
+subscribe(channel, pattern, options) ->  Subscription
+ack()                                ->  ()    消费单元自带，无参数
+nack()                               ->  ()    消费单元自带，无参数
+```
+
+- `send` 由 Transport 分配 cursor；返回的 cursor MUST 在该 Channel 内严格大于此前所有 cursor（§30.1、`TR-8`）。
+- `subscribe` 的 `SubscriptionOptions` 含 `mode`（`exclusive` / `group`）、`group`、`cursor`（默认 `latest`）（§27.1）。`mode` 为 `group` 时 `group` MUST 指定（`SUB-4`），且 MUST 指名同一 Channel 上的一个 [`ConsumerGroup`](../reference/consumer-group.md)（`CG-8`）。
+- 每个 [`Subscription`](../reference/subscription.md) 有 `id` / `channel` / `mode` / `cursor` / `state`，以及 `suspend()` / `resume()` / `close()`（§27.1）。`close()` MUST 幂等（`SUB-6`），`close()` 之后 MUST NOT 再投递（`SUB-7`）。
+
+`Transport` 的 `readAfter` 不在表面上（§51）：它由 `Subscription` 的实现使用，插件作者不调用它。
+
+消费循环只有一条推进规则：**cursor 只随 `ack` 前移**（§26.4）。
+
+```
+循环取得消费单元 T：            ← 说明性伪代码
+  处理 T.payload
+  成功  →  T.ack()
+  失败  →  T.nack()
+```
+
+- `ack()` MUST 幂等（`AK-1`），把 cursor 置为 max(当前 cursor, 该项位置)（§26.4）。`nack()` MUST 幂等（`AK-2`）且 MUST NOT 推进 cursor；该项回到可用，并在下一次迭代重新投递（§26.4）。
+- `ack()` 之后 MUST NOT 允许 `nack()`；`nack()` 之后 MUST NOT 允许 `ack()`（`AK-3`、`AK-4`）。对已终结的消费单元再次调用 MUST 返回 `EAPP_LEASE_CLOSED`（`AK-5`）。
+- `at-least-once` 的消费者 MUST 幂等处理（`DL-5`）；`exactly-once` MUST NOT 出现在 Core（`DL-2`）。
+- [`Cursor`](../reference/cursor.md) 是不透明字符串，消费者 MUST NOT 解析它（§26.1）。已 ack 位置之前的消息 MUST NOT 被重新投递（`ST-3`）；未 ack 的消息 MAY 在重连后重新投递（`ST-4`）。
+- `event` 模式 MUST NOT 期待响应；它的投递 MAY 为零次，也 MAY 为多次（`EV-1`、`EV-2`、`EV-3`）。
+
+### 4.5 调用：`invoke`（§52）
+
+```
+invoke(from, to, capability, request, options)   ->  response
+```
+
+| 参数 | 类型 | 必需 | 语义 |
+|---|---|---|---|
+| `from` | `PluginRef` | 是 | **调用方** |
+| `to` | `PluginRef` | 是 | 被调用方 |
+| `capability` | `CapabilityRef` | 是 | 被调用的能力 |
+| `request` | 任意值 | 是 | 请求体，放入 `RequestMessage.payload` |
+| `options.timeoutMs` | number | 否 | 截止时间，从调用开始计 |
+| `options.correlationId` | string | 否 | 显式指定关联标识；省略时由实现分配 |
+
+结果是 `ResponseMessage.result`（成功）或一个 `EappError`（失败）（§52）。
+
+**`bind` 与 `invoke` 的 `from` 指向相反的一方。** `bind` 描述能力的提供方向，`invoke` 描述请求的发出方向；两个操作的 `to` 都指向被调用方所暴露的能力（`OP-4`、§52）。
+
+```
+invoke(from, to, capability)  ⟺  bind(from = to, to = from, capability) 之上的 request
+```
+
+每个 request MUST 有唯一 `correlationId`（`RQ-1`）；一个 request MUST 对应 0 或 1 个 response（`RQ-2`）；response MUST 携带与 request 相同的 `correlationId`（`RQ-3`）。deadline 到期后 request MUST 被视为超时（`RQ-4`）：截止时间到达时 `invoke` MUST 以 `EAPP_TIMEOUT` 结束，MUST NOT 静默挂起，MUST NOT 返回形态未定义的值（`OP-5`）；迟到的应答 MUST 按 `RQ-2` 被丢弃（§52）。
+
+### 4.6 `state` 模式不另立操作组（§53）
+
+含 `state` 模式的 Channel 复用 `send` / `subscribe` / `ack`（§53），[`StateWatcher`](../reference/state-watcher.md) 就是一个 `Subscription`（`SW-1`）。它由三段式路径构造（§32、§44.1）：
+
+```
+① bind(from, to, capability)                                     ->  Binding
+② createChannel({ binding, mode: 'state',
+                  delivery: 'at-least-once' })                   ->  Channel
+③ configure(channel, { conflictPolicy: 'cas', owner })            ->  StateChannel
+```
+
+`get` / `list` / `set` / `delete` / `watch` / `snapshot` / `restore` 是 [`StateChannel`](../reference/state-channel.md) 视图上的操作，MUST NOT 出现在裸 Channel 上（`IX-3`、§44.2）。
+
+---
+
+## 5. 错误如何浮现（§18、§33、§47、附录 D）
+
+### 5.1 错误的形状
+
+`EappError` 有四个字段（§18）：`code`（必需）、`message`（必需）、`details`（可选）、`retryable`（可选，缺省 `false`）。`code` 的取值范围是附录 D 登记的全集（§18）。
+
+错误的构造 MUST 在实现内只定义一次，三层共用（§18、附录 D）。各层的码联合按层扩展，MUST NOT 重命名或改义既有码（§33）。附录 D 是各层错误码的并集，用于避免同一语义在不同层被赋予两个码（附录 D）。
+
+### 5.2 `retryable` 的赋值规则
+
+```
+EAPP_REVISION_CONFLICT  → true   （CAS 冲突可重试）
+其余                    → false
+```
+
+`retryable` 为 `true` 时，重试同一操作在语义上是有意义的；为 `false` 时，调用方 MUST 改变输入或重新同步，而不是重试（附录 D.4）。
+
+### 5.3 正文给出触发条件的码
+
+| 错误码 | 触发条件 | 出处 |
 |---|---|---|
-| `caller` | 发起请求的插件身份 | 由 Binding 的 `to` 端推出 |
-| `callee` | 正在服务的插件身份（= Binding 的 `from` 端） | 由 Binding 推出 |
-| `capability` | 被调用的能力名 | 即信封里的 `operation` |
-| `correlationId` | 本次调用的关联 id | `runtime.invoke()` 生成，逐调用唯一 |
+| `EAPP_BINDING_INVALID` | `Binding.capability.plugin` 不等于 `Binding.from`；`createChannel` 的 binding 不存在 | §9.7、`CC-6` |
+| `EAPP_BINDING_DUPLICATE` | 并发 `bind` 同一 `(from, to, capability)` 时未返回既有 Binding | §9.8 |
+| `EAPP_BINDING_CLOSED` | `createChannel` 的 binding 已 `CLOSED` | `CC-7` |
+| `EAPP_DELIVERY_UNSUPPORTED` | 给 `stream` / `state` 指定 `at-most-once` | `DL-6`、`CC-5` |
+| `EAPP_TIMEOUT` | 截止时间到达 | §52、`OP-5`、`RQ-4` |
+| `EAPP_CURSOR_TOO_OLD` | 日志已压缩到无法定位请求位置；或请求的具体 Cursor 已被删除 | §26.2 规则 6、规则 7 |
+| `EAPP_CURSOR_UNSUPPORTED` | Transport 不支持 cursor | `CR-5`、`TR-9` |
+| `EAPP_UNSUPPORTED` | 特性不被支持（含 `supportsStateSnapshot` 为 false 时的 `snapshot` / `restore`） | `TR-9`、§46.2 |
+| `EAPP_MODE_INVALID` | `channel.mode` 与操作不匹配 | §44.1 |
+| `EAPP_STATE_UNSUPPORTED` | `supportsState` 为 false；或 `supportsStateRevision` 为 false 时的 `set` / `delete` / `restore` | §46.2 |
+| `EAPP_WATCH_UNSUPPORTED` | `supportsStateWatch` 为 false | §46.2 |
+| `EAPP_STATE_ACTOR_REQUIRED` | `configure` 的 `owner` 不是已注册 Identity | §44.1 |
+| `EAPP_STATE_KEY_NOT_FOUND` | `delete` 的 `expectedRevision` 为 `null`，而 key 从未存在 | `DEL-4`、§40.2 |
+| `EAPP_STATE_VALUE_INVALID` | `StateUpdate` 同时携带 `value` 与 `deleted = true`；或 `deleted === false` | `SU-3`、`SU-9` |
+| `EAPP_STATE_PATTERN_INVALID` | `StatePattern` 不满足 §42 的逐字段校验 | §42 |
+| `EAPP_REVISION_CONFLICT` | CAS 失败，含 `expectedRevision` 与当前 revision 不匹配 | §39.2、§40.2、`SU-4` |
+| `EAPP_REVISION_INVALID` | `compareRevision` 收到非本 Transport 签发的值；`writeStateWithRevision` 收到 `<= head` 的 revision | §37.2、§37.3 |
+| `EAPP_SNAPSHOT_INVALID` | `restore` 收到 `channel` 与目标不同的快照 | `SNAP-9` |
+| `EAPP_LEASE_CLOSED` | 对已终结的 `AckContext` 再次调用 `ack` / `nack` | `AK-5` |
 
-`correlationId` 是 request 模式"一问一答"的配对依据（RQ-1～RQ-3）：
-同一个 Channel 上并发的多个请求靠它各自配对，`handler` 可以把它回传给调用方用于追踪。
+下列码只登记在 §18 / §33 / §47 的清单里，正文没有给出单独的触发条款：
 
-**一个 handler 里可以再发起调用。** 示例里的 `greeter` 就在自己的 handler 里
-`invoke` 了 `casing`。此时 `greeter` 是 `from`（**发起调用的一方**），`casing` 是 `to`
-（**能力提供方**）。
+```
+EAPP_IDENTITY_INVALID        EAPP_IDENTITY_DUPLICATE     EAPP_CAPABILITY_NOT_FOUND
+EAPP_CAPABILITY_NOT_EXPOSED  EAPP_PLUGIN_NOT_FOUND       EAPP_PLUGIN_INACTIVE
+EAPP_LIFECYCLE_INVALID       EAPP_DISCOVERY_SCOPE_INVALID EAPP_INTERNAL
+EAPP_CHANNEL_INVALID         EAPP_CHANNEL_CLOSED         EAPP_CHANNEL_DRAINING
+EAPP_CURSOR_INVALID          EAPP_SUBSCRIPTION_INVALID   EAPP_LEASE_EXPIRED
+EAPP_LEASE_CONFLICT          EAPP_STATE_KEY_INVALID
+```
 
-> ### `invoke()` 的 `from` / `to` 与 `connect()` 是**反的**
->
-> ```
-> connect({ from, to })     from = 能力提供方      to = 消费方      ← v3.0 Binding 的方向
-> invoke ({ from, to })     from = 调用方（消费方）  to = 能力提供方  ← "我要调用谁"
-> publish({ from, to })     from = 能力提供方      to = 消费方      ← 同 connect
-> ```
->
-> 这不是笔误，是两个不同的概念用了同一对字段名，读起来很容易反过来。
-> `connect()` 描述的是**关系**：v3.0 的 `bind()` 把 `from` 定义为能力提供方。
-> `invoke()` 描述的是**动作**：谁在发起这次调用。
->
-> 运行时内部按 `(from = request.to, to = request.from)` 建立并复用 Binding ——
-> 也就是说 `invoke({ from: A, to: B })` 要求 **B** 提供这个能力。
-> 写反会以 `EAPP_CAPABILITY_NOT_EXPOSED` 失败，因为那等于要求消费方去提供它。
->
-> `examples/my-first-plugin/` 里把这条实测出来了。
+它们是可用的失败信号；正文没有为它们规定唯一的触发条件。
 
 ---
 
-## 5. 激活钩子
+## 6. 插件 MUST NOT 做的事
 
-四个钩子对应 v3.0 Lifecycle 的四个操作：
-
-```
-INACTIVE  --activate-->   ACTIVE       → activate()
-ACTIVE    --suspend-->    SUSPENDED    → suspend()
-SUSPENDED --resume-->     ACTIVE       → resume()
-任意状态   --deactivate--> INACTIVE     → deactivate()
-```
-
-它们由 `EappRuntime` 在推进核心状态**之后**调用：
-
-```typescript
-async activate(plugin: PluginRef): Promise<void> {
-  this.#assertLive();
-  // 只有核心真的发生了状态转移，才调用插件的钩子。
-  if (!(await this.#changeLifecycle(plugin, () => this.core.activate(plugin)))) return;
-  await this.#modules.get(identityKey(plugin))?.activate?.();
-}
-```
-
-注意那个守卫。核心状态机的 `activate` 对已 `ACTIVE` 的插件是 no-op（O-5），
-而"no-op"在这里意味着**钩子不会被调用**：
-
-- **重复 `runtime.activate(p)` 不会让 `activate()` 被调用两次。** 早期版本会 ——
-  那迫使每个插件都去防御一次 O-5 已经排除的重复激活。现在由运行时负责。
-- **但钩子仍然应当自己幂等。** `deactivate()` 在契约里被明确要求幂等；
-  而且 `INACTIVE → ACTIVE → INACTIVE → ACTIVE` 是合法的正常序列，
-  钩子会各被调用一次。真正的"只允许发生一次"初始化要自己加标记，别指望状态机帮忙。
-
-- **`activate()` 不是 `INACTIVE → SUSPENDED` 的通路。** 对 `SUSPENDED` 的插件调
-  `activate()` 会让核心抛 `EAPP_LIFECYCLE_INVALID`（L-6）：先用 `resume()`。
-
-钩子在核心状态之后运行，意味着钩子里做的事情**已经**处在 Active Composition 之中；
-派生出的 Binding 此刻已经可能因此变成 `ACTIVE`。
-
----
-
-## 6. 注册 → 发现 → 连接 → 激活 → 调用
-
-五个操作对应五个方法，前四个方法的归属层不同：
-
-| 动作 | 调用 | 层 |
-|---|---|---|
-| 注册 | `runtime.register(module): PluginRef` | v3.0（注册只产生"可发现性"） |
-| 发现 | `runtime.discover(criteria, scope?): Promise<PluginRef[]>` | v3.0 [`Discovery`](../reference/discovery.md) |
-| 连接 | `runtime.connect({from, to, capability, mode, delivery?})` | v3.0 `bind()` + v3.1 Channel 创建路径 |
-| 激活 | `runtime.activate(ref)` / `suspend` / `resume` / `deactivate` | v3.0 Lifecycle |
-| 调用 | `runtime.invoke({from, to, capability, payload?, timeoutMs?})` | v3.1 request 模式 |
-
-**注册的语义是"可被发现"，不是"可以调用"。**
-`register()` 之后插件的生命周期是 `INACTIVE`，`runtime.core.listBindings()` 里什么都没有。
-发现（D-3）只是必要条件。
-
-`criteria` 的可用字段：`capability`（名字）、`version`（SemVer **range** ——
-`'1.0.0'` 精确到那一个版本，`'^1.0.0'` / `'>=2'` / `'*'` 是范围；语法不认识的范围会被
-**明确拒绝**，不会静默不匹配）、`constraints`、`identity`（`domain` / `id` / `instance` 的部分匹配）。
-`scope` 是 `{ trustLevel?, trustDomain? }`；当前实现只在有对应信任策略时才接受它，
-否则抛 `EAPP_DISCOVERY_SCOPE_INVALID` —— 一个无法评估的 scope **不会被静默忽略**。
-
-**连接方向是有含义的：`from` 是能力提供方，`to` 是消费方。**
-（`invoke()` 的 `from` / `to` 是**反的** —— 见 §4 的说明框。）
-`connect()` 会：
-
-1. 复用 `(from, to, capability)` 上尚未 `CLOSED` 的
-   [`Binding`](../reference/binding.md)（没有才新建，遵守 B-6 唯一性）；
-2. 由该 Binding **派生**一个 [`Channel`](../reference/channel.md)，模式取自 `mode`；
-3. `delivery` 省略时按 §4.4 推导：`stream` / `state` → `at-least-once`，其余 → `at-most-once`。
-
-Binding 的状态是**派生**的，不是设置的：
-
-```
-CLOSED      已 unbind
-ACTIVE      from 与 to 都是 ACTIVE，且 from 仍然暴露该 Capability
-DORMANT     其余情况（尚在关系中，但不能服务）
-```
-
-所以"先 bind 后 activate"是完全正常的顺序：`connect()` 之后 Binding 是 `DORMANT`，
-两端 `activate` 之后它自己变成 `ACTIVE`。
-
-**`invoke()` 不是本地函数调用。** 它真的把请求信封写进 Transport、再由 Channel 上的
-dispatcher 读回来交给 handler —— 这样才真正跑过了三层。它会：
-
-- 必要时建立 `(from=提供方, to=消费方)` 的 Binding 与 `request` 模式的 Channel；
-- 生成 `correlationId`，登记未决调用（RQ-1）；
-- 带上 `deadline`；超时后以 `EAPP_TIMEOUT` 拒绝并**放弃**该请求（RQ-4），
-  迟到的响应会被静默丢弃，不会二次结算。
-
-`timeoutMs` 默认 5000。**它不保证在极端竞态下必然触发**：
-如果响应已经在 Transport 里等待被读走，`invoke` 会先结算成功。
-要观察超时，让 handler 的耗时明确大于 `timeoutMs`。
-
-### 6.1 provider 在别的进程里
-
-v3.0 §5.2 拒绝要求每个 Plugin 具有相同的实现形态 —— 它可以是进程内模块、
-**独立进程**、worker、远程服务。上面所有内容默认了第一种。换第二种时，
-两件事必须显式说出来，因为它们原本是隐式的：
-
-```typescript
-// 调用方：注册它，但不执行它
-const pricing = runtime.registerRemote({
-  identity: { domain: 'acme.shop', id: 'pricing', instance: 'pricing-1' },
-  capabilities: [{ name: 'pricing.quote', version: '1.0.0' }],
-});
-await runtime.activate(pricing);
-```
-
-```typescript
-// 提供方进程：注册它，并且**服务**它
-const pricing = runtime.register({
-  manifest: { identity: { /* 同上 */ }, capabilities: [PRICING] },
-  handlers: { 'pricing.quote': async (payload) => { /* 真的跑在这里 */ } },
-});
-const caller = runtime.register({ manifest: { identity: CHECKOUT, capabilities: [] } });
-await runtime.activate(pricing);
-await runtime.activate(caller);
-await runtime.serve({ from: pricing, to: caller, capability: PRICING });   // ← 关键
-```
-
-**`register` 与 `registerRemote` 的区别是"可寻址"与"本进程执行"。**
-一个进程里这两件事重合，所以这个区别一直看不见。分开之后它立刻显形：
-调用方的 dispatcher 若替别人的 provider 应答，会抢在真正的回复前面回一个
-`EAPP_CAPABILITY_NOT_EXPOSED` —— 从它自己的角度完全正确，对调用方却是一个错的答案。
-`runtime.hosts(ref)` 可以问出这个区别。
-
-**`serve()` 只在提供方进程调用，而且每个 Channel 只能有一个。**
-两个进程同时服务同一个 Channel 时，两边都会执行 handler，重复的回复被
-correlation tracker 当作重复响应丢掉 —— 调用方看到一个正常的回答，而副作用发生了两次。
-所以服务者身份由 Transport 仲裁（`ServerRoleProvider`），抢不到的一方
-`serve()` 直接失败。
-
-完整可跑的例子见 [`examples/cross-process/`](../../examples/cross-process/index.ts)：
-broker 进程 + 两个 worker 进程 + 一个 provider 进程 + 调用方进程。
-
----
-
-## 7. 错误如何浮现
-
-三层共用一个运行时错误类 `EappError`（`class EappError extends Error`）。
-它**定义在 `@eapp/core`**，而 `@eapp/runtime` 会**再导出**它 ——
-所以插件作者只需要一个 import：
-
-```typescript
-// 两行等价；§2 的示例用第一行（相对路径的说明见 §2）
-import { EappError, EappRuntime, type PluginModule } from '../../packages/runtime/src/index.js';
-// import { EappError } from '../../packages/core/src/index.js';
-
-class EappError extends Error {
-  readonly code: string;
-  readonly details?: unknown;
-  readonly retryable: boolean;
-}
-```
-
-同一个类被三层共用，所以 handler 里 `new` 出来的实例跨过 Channel 之后，
-调用方的 `instanceof EappError` 判断与 `error.code` 读取都成立。
-
-handler 抛出的错误会在响应信封里变成一个**码**，调用方看到的就是这个码：
-
-| handler 抛出 | 调用方拿到 |
+| 禁止 | 依据 |
 |---|---|
-| `new EappError('EAPP_GREETING_INVALID_NAME', '…')` | 同样的 `code`，`retryable` 按规则（默认 `false`） |
-| 任何其它 `Error`（含 `TypeError`） | `EAPP_INTERNAL`，`message` 保留原始文本 |
-| 抛出的不是 `Error`（如字符串） | `EAPP_INTERNAL`，`message` 是该值的字符串化 |
-| 请求超出 `timeoutMs` | `EAPP_TIMEOUT`（`invoke` 在调用侧抛，`retryable: false`） |
-| 目标插件没有该能力的 handler | `EAPP_CAPABILITY_NOT_EXPOSED` |
-| 目标没注册 | `EAPP_PLUGIN_NOT_FOUND` |
-| 请求到达时 deadline 已过 | `EAPP_TIMEOUT`，且**工作根本不会开始**（RQ-4） |
+| 自行签发 Identity | `ID-5`：Identity MUST NOT 由 Plugin 自身伪造（§6.3） |
+| 把版本写进 Identity | `ID-6`（§6.2）；版本由 `Capability.version` 表达（§6.2） |
+| 在生命周期内改变 Identity | `ID-4`、`P-3`（§6.3、§8.3） |
+| 省略 `CapabilityRef.version` | `C-5`（§7.4）；版本 MUST 参与 Binding identity（`C-6`） |
+| 期待 Core 提供更丰富的 constraint 匹配 | `C-7`（§7.5）：范围、偏序、谓词属于 Extension，MUST NOT 混入 Core |
+| 直接设置 Binding 状态 | `B-3`（§9.10）：Binding 状态 MUST 是派生的，MUST NOT 被直接设置 |
+| 让 `PENDING` 对外可观察 | `B-9`（§9.2） |
+| 在同一 `(from, to, capability)` 上并存多个非 CLOSED Binding | `B-6`（§9.8） |
+| 在 Binding 上声明消息方向、同步性、投递保证或序列化格式 | §9.9 |
+| 用 `activate` 从 `SUSPENDED` 恢复 | §10.3、`LC-6` |
+| 认为 `deactivate` 或 `suspend` 会解除 Binding | §10.4、`LC-5`、`OP-6` |
+| 把发现当作可组合或可调用的保证 | `D-3`、`D-5`（§11.3） |
+| 把 `trustLevel` 当数值等级或授权顺序 | `D-7`（§11.2） |
+| 在 Channel 生命周期内改变 `mode` 或 `delivery` | `CH-5`、`CH-6`（§22.3） |
+| 期待 `exactly-once` | `DL-2`（§24）；`at-least-once` 的消费 MUST 幂等（`DL-5`） |
+| 解析 Cursor | §26.1 |
+| 让 cursor 随收到消息隐式前移，或用最小未了结位置替代组 cursor | §26.4、§28.3、`CR-3` |
+| 使用超出 Transport 能力的特性 | `TR-4`（§30.4）；Transport MUST NOT 伪装支持（`TR-3`） |
+| 期待 `event` 模式的响应 | `EV-1`（§23.2） |
+| 期待 Core 提供无条件写入 | `SU-6`（§39.5）；Core MUST 只支持 CAS（`CF-1`） |
+| 直接比较 Revision 字符串，或跨 Transport 比较 Revision | §37.2、`REV-5`、`REV-8` |
+| 在非 `state` 模式把 Revision 当 Cursor 用 | `REV-6`（§37.1） |
+| 在裸 Channel 上使用 `get` / `set` / `watch` / `snapshot` | `IX-3`（§48.1） |
+| 把确认写成由 watcher 代收集的形式 | §41.2 |
+| 引入 `pending` 结构来推迟 cursor | §26.4、§41.3 |
+| 要求插件作者使用协议未定义的入口，或访问实现的内部对象 | `OP-1`、`OP-2`（§54） |
+| 重命名或改义既有错误码 | §33 |
 
-实测（`pnpm run example:first` 的后半段，示例会自己核对每一条）：
-
-```
-错误如何浮现
-  payload.name = ""            -> EAPP_GREETING_INVALID_NAME retryable=false
-  handler 睡 40ms, timeoutMs 5 -> EAPP_TIMEOUT retryable=false
-  invoke 的 from/to 写反       -> EAPP_CAPABILITY_NOT_EXPOSED
-  声明了能力但没有 handler     -> EAPP_CAPABILITY_NOT_EXPOSED
-  目标插件没注册               -> EAPP_PLUGIN_NOT_FOUND
-  同一身份注册两次             -> EAPP_IDENTITY_DUPLICATE
-```
-
-要让 `EAPP_TIMEOUT` 真的出现，示例里的 `greeter` 多接受一个可选的 `delayMs`
-（§2 的摘录里省略了它）：handler 的耗时必须明确大于 `timeoutMs`，否则只是普通的时序竞态。
-示例用的是 handler 睡 40ms、`timeoutMs: 5`。
-
-「声明了能力但没有 handler」与「目标插件没注册」看起来是同一个失败，但失败发生在不同阶段：
-前者 Binding 建得起来（`from` 确实暴露了该能力），只是服务不了；
-后者连 Binding 都建不起来。
-
-两条实践建议：
-
-- **定义自己的错误码时带上前缀。** 码是一个开放集合：`EappError` 的构造器接受任意
-  `string`。但 v3.0 / v3.1 / v3.2 已经注册的码 **MUST NOT** 被重命名或改义，
-  所以自定义码要能一眼看出不属于协议，例如 `EAPP_GREETING_INVALID_NAME`。
-- **`retryable` 不要随便置真。** 只有 `EAPP_REVISION_CONFLICT` 在
-  `RETRYABLE_CODES` 里默认重试；把其它码标成可重试，会把"必须由人处理"的错误
-  变成重试风暴。
-
-`EappError` 的 `message` 里**总是**包含 `code` 前缀（已登记的偏离 D-4），
-所以 `rejects.toThrow('EAPP_...')` 这种规范形状的断言能够成立。
-若对已有的 `EappError` 再次包装，`message` 会出现重复前缀 —— 应当读取 `code` 字段，而非解析 `message`。
+表面只规定形状，上表的约束来自前三部分；表面与它们冲突时以前三部分为准（§50）。
 
 ---
 
-## 8. 插件 MUST NOT 做的事
+## 7. 速查表：操作 → 规范小节 → 不变量前缀
 
-| 禁止 | 为什么 |
-|---|---|
-| 自己签发 [`Identity`](../reference/identity.md) | v3.0 ID-5：`Identity MUST NOT be self-issued`。身份由 `IdentityRegistry` 铸造。运行时**校验**传入的身份，多余字段会被拒绝（`EAPP_IDENTITY_INVALID`），不采信自行声明的身份 |
-| 把版本塞进 Identity | ID-6：身份形状恰好是 `domain` / `id` / `instance`。版本属于 `Capability.version`，塞进身份会让"升级"变成"换了一个人" |
-| 直接依赖另一个插件的模块 | 那就不是组合，是编译期耦合。跨插件只能通过运行时：发现、连接、调用 |
-| 假设发现等于可调用 | D-3 / D-5：发现不是组合，也不替代 Binding |
-| 把 Binding 状态"设"成某个值 | 它由三件事派生。想让它变成 `ACTIVE`，去让两端 `ACTIVE` 且 `from` 仍暴露该能力 |
-| 在 handler 里假设 `payload` 的形状 | `payload` 是 `unknown`；Core 不做 schema 校验 |
-| 假设同一条 Channel 只有一个消费者 | 排他性由 [`ConsumerGroup`](../reference/consumer-group.md) + [`Lease`](../reference/lease.md) 表达，不在插件内部发明 —— 用 `runtime.openConsumerGroup()`，见 §9 |
-| 依赖 `onEvent` 之类的声明式钩子 | **没有这个字段**，见下 |
+| 操作 | 规范 | 不变量前缀 |
+|---|---|---|
+| `find` | §11.1、§12.2 | `D-` |
+| `watch` | §11.1、§12.2 | `D-` |
+| `bind` | §9、§12.2 | `B-`、`O-` |
+| `unbind` | §9、§12.2 | `B-`、`O-` |
+| `createChannel` | §22、§32 | `CC-`、`CH-` |
+| `activate` / `deactivate` / `suspend` / `resume` | §10、§12.2 | `LC-`、`O-` |
+| `send` | §30.1 | `TR-` |
+| `subscribe` | §27.1 | `SUB-`、`CG-` |
+| `ack` / `nack` | §26.4、§29 | `AK-`、`CR-`、`L-` |
+| `invoke` | §52 | `RQ-`、`OP-` |
 
-**没有 `onEvent` 钩子，这是有意的。** 早期版本声明过一个，
-但运行时**从来没有调用点** —— `register()` 只保存模块，`#dispatchLoop()` 只处理
-request/response 信封，`publish()` 只做 `transport.send()`。
-
-一个"看起来支持、接受 handler、然后静默丢弃"的扩展点比没有这个扩展点更糟：
-它会让插件作者写下一段永远不会执行的代码，并且以为它已经跑通了。
-该字段已被**删除**，而不是留在契约里继续骗人。
-
-**事件与流的消费一律走显式的 `runtime.subscribe()`** ——
-它返回一个真正的 v3.1 [`Subscription`](../reference/subscription.md)，
-带一个由调用方 `ack()` 推进的 [`Cursor`](../reference/cursor.md)：
-
-```typescript
-const subscription = await runtime.subscribe(channel.id, { type: 'metric' });
-for await (const message of subscription) {
-  handle(message.payload);
-  await message.ack();   // 只有 ack 会推进 cursor（CR-1）
-}
-```
+表面自身的九条不变量是 `OP-1`…`OP-9`（附录 B.4）。全部不变量的清单与各前缀的含义见附录 B；各层的合规等级见 §17、§34、§53。
 
 ---
 
-## 9. 一条 Channel，多个消费者：`ConsumerGroup`
+## 8. 相关
 
-`subscribe()` 回答"**谁在**参与"。如果一个问题变成"**谁和谁在竞争**" ——
-一个工作池里有多个成员、每条消息只能被处理一次 ——
-那是另一个实体：[`ConsumerGroup`](../reference/consumer-group.md)（v3.1 §8）。
-
-```
-组之间   每个组都收到全部消息，各自持有独立 Cursor      （CG-4）
-组之内   每条消息只交给一个成员 —— 成员之间竞争         （CG-3）
-```
-
-运行时给出的操作面：
-
-```typescript
-// 先在 Channel 上开一个组（CG-1：组名在同一 Channel 内唯一）
-await runtime.openConsumerGroup(channel.id, { name: 'workers', prefetch: 1 });
-
-// 成员加入（CG-8：必须指名一个已存在的组）
-const member = await runtime.joinConsumerGroup(channel.id, 'workers');
-
-for await (const message of member) {
-  await work(message.payload);
-  await message.ack();     // ack 推进的是**组**的 cursor（CG-1 / CG-2）
-}
-```
-
-`member.cursor` 是**组**的位置，成员没有自己的 —— 一个组在任何时刻恰好有一个位置。
-成员 `nack()` 或**离开**时，它持有的位置立刻归还给组（CG-6 / CG-5），
-所以一个成员崩在岗位上不会让整组空转。
-
-三条容易踩的：
-
-- **`openConsumerGroup` 与 `joinConsumerGroup` 是两步，不能合并。** 组必须先在
-  Channel 上存在；直接 join 一个不存在的组会以 `EAPP_SUBSCRIPTION_INVALID` 失败。
-- **`prefetch` 是唯一对抗垄断的旋钮。** CG-3 保证排他，**不保证公平**：
-  最先醒来的成员会把当时可见的工作整批领走（默认上限 16），其余成员只能等它做完。
-  单进程里这多半无所谓；一个**跨进程**的工作池必须调小 ——
-  [`examples/cross-process/`](../../examples/cross-process/index.ts) 用 `1`，
-  于是两个 worker 进程各拿一半。
-- **排他性不等于不重复。** 成员崩溃后工作会被重新投递（这就是 `at-least-once`），
-  所以同一个 job 可能被执行两次。去重是应用的事（幂等键、去重表），不是协议的事。
-
-**组能有多宽，取决于竞争状态放在哪。** 认领表在进程内内存里时，两个进程会各自以为
-持有同一个位置 —— 每条消息被处理两次，而没有任何报错。所以跨进程的组要求 Transport
-提供共享的组状态（`sharesGroupState` + `groupStore()`）；不提供时 `openConsumerGroup()`
-会**明确失败**（`EAPP_UNSUPPORTED`），而不是静默降级。细节见
-[`ConsumerGroup`](../reference/consumer-group.md)。
-
-完整的、可运行的例子有两份：
-[`examples/job-queue/`](../../examples/job-queue/index.ts) 走单进程（竞争消费、nack 重投、
-成员死在岗位上、三个组共存于一条 Channel），
-[`examples/cross-process/`](../../examples/cross-process/index.ts) 走跨进程
-（两个 worker 进程加入同一个组，每条订单恰好被一个进程处理）。
-
----
-
-## 10. 一页速查
-
-```
-注册   runtime.register(module)                       → PluginRef      （权威身份）
-发现   runtime.discover({ capability: '...' })         → PluginRef[]
-连接   runtime.connect({ from, to, capability, mode })   from = 提供方
-激活   runtime.activate(ref) / suspend / resume / deactivate
-调用   runtime.invoke({ from, to, capability, payload, timeoutMs })
-                                                       from = 调用方（与 connect 反）
-消费   runtime.subscribe(channelId, pattern, options)  → Subscription
-竞争   runtime.openConsumerGroup(channelId, { name })  → ConsumerGroup
-       runtime.joinConsumerGroup(channelId, name)      → Subscription（组的位置）
-
-Binding 状态 = 派生     handler 抛 EappError → 调用方看到同一个 code
-组 = 谁和谁竞争        成员没有自己的 cursor
-```
-
----
-
-## 相关
-
-- [概念：三层心智模型](./concepts.md) —— 层与层的分工
-- [快速上手](./getting-started.md) —— 演示中这五个操作的形态
+- [概念：三层心智模型](./concepts.md) —— 层与层的分工，以及表面为什么不是第四层
+- [快速上手](./getting-started.md) —— 五个操作组的实际形态
 - [实现一个 Transport](./write-a-transport.md) —— 换掉消息怎么走
-- [`Plugin`](../reference/plugin.md) · [`Identity`](../reference/identity.md) ·
+- [写一个 Extension](./write-an-extension.md) —— 协议之外的语义如何表达
+- [规范正文 §50–§54](../spec/eapp.md) —— 表面的定义
+- 实体索引：[`Plugin`](../reference/plugin.md) · [`Identity`](../reference/identity.md) ·
   [`Capability`](../reference/capability.md) · [`Binding`](../reference/binding.md) ·
-  [`Lifecycle`](../reference/lifecycle.md) · [`Discovery`](../reference/discovery.md)
-- [v3.0.0-core 规范](../spec/v3.0.0-core.md) —— 唯一裁决者
+  [`Lifecycle`](../reference/lifecycle.md) · [`Discovery`](../reference/discovery.md) ·
+  [`Channel`](../reference/channel.md) · [`Subscription`](../reference/subscription.md) ·
+  [`Cursor`](../reference/cursor.md) · [`AckContext`](../reference/ack-context.md) ·
+  [`StateChannel`](../reference/state-channel.md)
