@@ -37,6 +37,13 @@
  *      The appendix is a declaration list; pointers to sections belong in the body,
  *      where a reader can follow them.
  *
+ *   8. Every registered error code has a condition (`ER-2`). The appendix claimed each
+ *      code's condition was given at its definition site while the three error models
+ *      only listed names — 17 of 36 codes had no triggering clause anywhere, and two
+ *      implementations could assign them different conditions and both claim compliance.
+ *      The rule is the direct reading of `ER-2`: a code in the appendix must appear
+ *      somewhere in the body.
+ *
  * Usage:  node tools/check-spec.mjs [--json]
  * Exit:   0 = gate passes, 1 = at least one violation
  */
@@ -165,11 +172,24 @@ function main() {
     if (/§\s*\d/.test(lines[i])) appendixRefs.push({ line: i + 1, text: lines[i].trim().slice(0, 100) });
   }
 
+  // -- R8 -------------------------------------------------------------------
+  const CODE = /\bEAPP_[A-Z_]+\b/g;
+  const appendixDStart = lines.findIndex((l) => /^## 附录 D/.test(l));
+  const registered = new Set();
+  for (let i = appendixDStart; i < lines.length; i += 1) {
+    for (const m of lines[i].matchAll(CODE)) registered.add(m[0]);
+  }
+  const inBody = new Set();
+  for (let i = 0; i < appendixDStart; i += 1) {
+    for (const m of lines[i].matchAll(CODE)) inBody.add(m[0]);
+  }
+  const orphanCodes = [...registered].filter((c) => !inBody.has(c)).sort();
+
   // -------------------------------------------------------------------------
   const failed =
     numbering.length > 0 || references.length > 0 || duplicated.length > 0 ||
     unstated.length > 0 || links.length > 0 || implementationRefs.length > 0 ||
-    taggedBlocks.length > 0 || appendixRefs.length > 0;
+    taggedBlocks.length > 0 || appendixRefs.length > 0 || orphanCodes.length > 0;
 
   if (asJson) {
     process.stdout.write(`${JSON.stringify({
@@ -177,7 +197,8 @@ function main() {
       sections: sections.size,
       referencesChecked: refsChecked,
       invariants: declared.length,
-      numbering, references, duplicated, unstated, links, implementationRefs, taggedBlocks, appendixRefs,
+      errorCodes: registered.size,
+      numbering, references, duplicated, unstated, links, implementationRefs, taggedBlocks, appendixRefs, orphanCodes,
     }, null, 2)}\n`);
     process.exit(failed ? 1 : 0);
   }
@@ -186,6 +207,7 @@ function main() {
   out.push(`spec sections: ${sections.size}, numbered 1..${sections.size}${numbering.length ? ' — GAPS' : ''}`);
   out.push(`spec references: ${refsChecked} § reference(s) checked, ${references.length} dangling, ${appendixRefs.length} inside appendix B`);
   out.push(`spec invariants: ${declared.length} declared, ${duplicated.length} declared twice, ${unstated.length} never stated`);
+  out.push(`spec error codes: ${registered.size} registered, ${orphanCodes.length} without a stated condition`);
   out.push(`spec self-sufficiency: ${links.length} link(s) out of docs/spec/`);
   out.push(`spec language neutrality: ${implementationRefs.length} implementation reference(s), ${taggedBlocks.length} language-tagged block(s)`);
   out.push('');
@@ -199,6 +221,7 @@ function main() {
   for (const i of implementationRefs) detail.push(`  names an implementation  line ${i.line}: ${i.text}`);
   for (const t of taggedBlocks) detail.push(`  language-tagged block  line ${t.line}: \`\`\`${t.lang}`);
   for (const a of appendixRefs) detail.push(`  appendix B points at a section  line ${a.line}: ${a.text}`);
+  for (const c of orphanCodes) detail.push(`  registered without a condition  ${c}  (ER-2)`);
 
   if (detail.length) out.push(...detail, '');
   out.push(failed ? 'SPEC GATE: FAIL' : 'SPEC GATE: PASS');

@@ -219,7 +219,7 @@ invoke(from, to, capability)  ⟺  bind(from = to, to = from, capability) 之上
 
 `EappError` 有四个字段（§18）：`code`（必需）、`message`（必需）、`details`（可选）、`retryable`（可选，缺省 `false`）。`code` 的取值范围是附录 D 登记的全集（§18）。
 
-错误的构造 MUST 在实现内只定义一次，三层共用（§18、附录 D）。各层的码联合按层扩展，MUST NOT 重命名或改义既有码（§33）。附录 D 是各层错误码的并集，用于避免同一语义在不同层被赋予两个码（附录 D）。
+错误的构造 MUST 在实现内只定义一次，三个分卷共用（§18）。每个码的产生条件只规定一处：§18、§33、§47 各有一张表。附录 D 把三个分卷的码并到一处，用于避免同一语义在不同分卷被赋予两个码；它指出条件写在哪一节，不重复条件本身。
 
 ### 5.2 `retryable` 的赋值规则
 
@@ -228,44 +228,26 @@ EAPP_REVISION_CONFLICT  → true   （CAS 冲突可重试）
 其余                    → false
 ```
 
-`retryable` 为 `true` 时，重试同一操作在语义上是有意义的；为 `false` 时，调用方 MUST 改变输入或重新同步，而不是重试（附录 D.4）。
+`retryable` 为 `true` 时，重试同一操作在语义上是有意义的；为 `false` 时，调用方 MUST 改变输入或重新同步，而不是重试（附录 D.1）。
 
-### 5.3 正文给出触发条件的码
+### 5.3 常见错误与它们何时出现
 
-| 错误码 | 触发条件 | 出处 |
+每个码的产生条件**只在一处规定**：Composition Core 见 §18 的表，Interaction Layer 见 §33 的表，
+State Mode 见 §47 的表。附录 D 是三个分卷的并集，指出每个码的条件写在哪一节。
+它不重复那些条件 —— 复述会随规范改动而漂移。
+
+插件作者最常遇到的是这几个：
+
+| 错误码 | 何时出现 | 条件见 |
 |---|---|---|
-| `EAPP_BINDING_INVALID` | `Binding.capability.plugin` 不等于 `Binding.from`；`createChannel` 的 binding 不存在 | §9.7、`CC-6` |
-| `EAPP_BINDING_DUPLICATE` | 并发 `bind` 同一 `(from, to, capability)` 时未返回既有 Binding | §9.8 |
-| `EAPP_BINDING_CLOSED` | `createChannel` 的 binding 已 `CLOSED` | `CC-7` |
-| `EAPP_DELIVERY_UNSUPPORTED` | 给 `stream` / `state` 指定 `at-most-once` | `DL-6`、`CC-5` |
-| `EAPP_TIMEOUT` | 截止时间到达 | §52、`OP-5`、`RQ-4` |
-| `EAPP_CURSOR_TOO_OLD` | 日志已压缩到无法定位请求位置；或请求的具体 Cursor 已被删除 | §26.2 规则 6、规则 7 |
-| `EAPP_CURSOR_UNSUPPORTED` | Transport 不支持 cursor | `CR-5`、`TR-9` |
-| `EAPP_UNSUPPORTED` | 特性不被支持（含 `supportsStateSnapshot` 为 false 时的 `snapshot` / `restore`） | `TR-9`、§46.2 |
-| `EAPP_MODE_INVALID` | `channel.mode` 与操作不匹配 | §44.1 |
-| `EAPP_STATE_UNSUPPORTED` | `supportsState` 为 false；或 `supportsStateRevision` 为 false 时的 `set` / `delete` / `restore` | §46.2 |
-| `EAPP_WATCH_UNSUPPORTED` | `supportsStateWatch` 为 false | §46.2 |
-| `EAPP_STATE_ACTOR_REQUIRED` | `configure` 的 `owner` 不是已注册 Identity | §44.1 |
-| `EAPP_STATE_KEY_NOT_FOUND` | `delete` 的 `expectedRevision` 为 `null`，而 key 从未存在 | `DEL-4`、§40.2 |
-| `EAPP_STATE_VALUE_INVALID` | `StateUpdate` 同时携带 `value` 与 `deleted = true`；或 `deleted === false` | `SU-3`、`SU-9` |
-| `EAPP_STATE_PATTERN_INVALID` | `StatePattern` 不满足 §42 的逐字段校验 | §42 |
-| `EAPP_REVISION_CONFLICT` | CAS 失败，含 `expectedRevision` 与当前 revision 不匹配 | §39.2、§40.2、`SU-4` |
-| `EAPP_REVISION_INVALID` | `compareRevision` 收到非本 Transport 签发的值；`writeStateWithRevision` 收到 `<= head` 的 revision | §37.2、§37.3 |
-| `EAPP_SNAPSHOT_INVALID` | `restore` 收到 `channel` 与目标不同的快照 | `SNAP-9` |
-| `EAPP_LEASE_CLOSED` | 对已终结的 `AckContext` 再次调用 `ack` / `nack` | `AK-5` |
+| `EAPP_CAPABILITY_NOT_EXPOSED` | `bind` 的 `from` 未暴露该能力 | §18 |
+| `EAPP_BINDING_DUPLICATE` | 已存在一个非 CLOSED 的同 `(from, to, capability)` Binding | §18 |
+| `EAPP_PLUGIN_INACTIVE` | 操作要求该 Plugin 处于 ACTIVE，而它是 INACTIVE | §18 |
+| `EAPP_TIMEOUT` | 请求的截止时间到达 | §33 |
+| `EAPP_DELIVERY_UNSUPPORTED` | 给 stream / state Channel 指定 `at-most-once` | §33 |
 
-下列码只登记在 §18 / §33 / §47 的清单里，正文没有给出单独的触发条款：
-
-```
-EAPP_IDENTITY_INVALID        EAPP_IDENTITY_DUPLICATE     EAPP_CAPABILITY_NOT_FOUND
-EAPP_CAPABILITY_NOT_EXPOSED  EAPP_PLUGIN_NOT_FOUND       EAPP_PLUGIN_INACTIVE
-EAPP_LIFECYCLE_INVALID       EAPP_DISCOVERY_SCOPE_INVALID EAPP_INTERNAL
-EAPP_CHANNEL_INVALID         EAPP_CHANNEL_CLOSED         EAPP_CHANNEL_DRAINING
-EAPP_CURSOR_INVALID          EAPP_SUBSCRIPTION_INVALID   EAPP_LEASE_EXPIRED
-EAPP_LEASE_CONFLICT          EAPP_STATE_KEY_INVALID
-```
-
-它们是可用的失败信号；正文没有为它们规定唯一的触发条件。
+`EAPP_INTERNAL` 的定位是兜底：实现遇到无法归入其他任何码的失败时才用它，
+**MUST NOT** 用它替代规范已经为某种情况规定的码（`ER-1`）。
 
 ---
 

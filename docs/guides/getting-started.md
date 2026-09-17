@@ -9,7 +9,7 @@
 
 | 交付物 | 位置 | 说明 |
 |---|---|---|
-| 规范性正文 | [`docs/spec/eapp.md`](../spec/eapp.md) | EaPP 协议的**唯一**语义来源。协议版本 `3.4.0`，54 节，219 条不变量，四部分与四个附录 |
+| 规范性正文 | [`docs/spec/eapp.md`](../spec/eapp.md) | EaPP 协议的**唯一**语义来源。协议版本 `3.5.0`，54 节，221 条不变量，四部分与四个附录 |
 | 规范闸门 | `tools/check-spec.mjs` | 对那份正文自身的机械检查，见第 4 节 |
 | 文档闸门 | `tools/check-docs.mjs` | 相对链接与正文语域，见第 4 节 |
 
@@ -54,7 +54,7 @@
 | 用另一种语言实现 | §3 一致性与合规（§3.1 测试义务、§3.2 一致性声明）、附录 B 的不变量全集。指南：[用另一种语言实现 EaPP](./implement-in-another-language.md) |
 | 表达协议之外的语义 | §7.5（`C-7`）、§44.5（`CF-3`）、§49。指南：[写一个 Extension](./write-an-extension.md) |
 | 查一个实体的语义 | 附录 A 给一句话定义；正文小节给字段、语义、不变量与错误码 |
-| 查错误码 | 各分卷的码表在 §18、§33、§47；附录 D 是三个分卷的并集，把它分成有触发条款的码与仅登记的码 |
+| 查错误码 | 各分卷的码表在 §18、§33、§47，每个码的产生条件就在那三张表里；附录 D 是三个分卷的并集，并指出每个码的条件写在哪一节 |
 
 ---
 
@@ -82,8 +82,9 @@ npm run verify
 
 ```
 spec sections: 54, numbered 1..54
-spec references: 85 § reference(s) checked, 0 dangling, 0 inside appendix B
-spec invariants: 219 declared, 0 declared twice, 0 never stated
+spec references: 104 § reference(s) checked, 0 dangling, 0 inside appendix B
+spec invariants: 221 declared, 0 declared twice, 0 never stated
+spec error codes: 36 registered, 0 without a stated condition
 spec self-sufficiency: 0 link(s) out of docs/spec/
 spec language neutrality: 0 implementation reference(s), 0 language-tagged block(s)
 
@@ -110,7 +111,7 @@ SPEC GATE: PASS
 
 两点须注意：
 
-- 它固定于协议 `3.3.0`（tag `reference-3.3.0`），**尚未同步到 `3.4.0`**。
+- 它固定于协议 `3.3.0`（tag `reference-3.3.0`），**尚未同步到当前版本 `3.5.0`**。
   第 IV 部分（§50–§54）是 `3.4.0` 引入的分卷，`reference` 分支上还没有对应的插件开发表面。
 - 它的目录、依赖与命令按它自己的版本组织，与本仓库无关。
   本仓库的验证命令只有第 4 节那两条。

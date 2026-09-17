@@ -4,8 +4,8 @@
 
 | | |
 |---|---|
-| 协议版本 | `3.4.0` |
-| 状态 | FROZEN。`3.4.0` 引入的分卷 IV 尚未取得 §2.3 要求的评审，见 `CHANGELOG.md` |
+| 协议版本 | `3.5.0` |
+| 状态 | FROZEN。`3.4.0` 的分卷 IV 与 `3.5.0` 的错误码条款尚未取得 §2.3 要求的评审，见 `CHANGELOG.md` |
 | 规范用语 | MUST / MUST NOT / SHOULD / SHOULD NOT / MAY（RFC 2119） |
 | 适用范围 | 任何语言、任何运行时、任何传输 |
 
@@ -858,23 +858,30 @@ Bootstrap Runtime MUST 尽可能小。MUST NOT 承担 Composition Core / Interac
 
 错误的构造 MUST 在实现内只定义一次，三层共用。若各层分别声明一个同名结构而不定义如何构造它，错误的产生将无从成立。
 
-本层贡献的错误码：
+**本层错误码与它们的产生条件**：
 
-```text
-EAPP_IDENTITY_INVALID
-EAPP_IDENTITY_DUPLICATE
-EAPP_CAPABILITY_NOT_FOUND
-EAPP_CAPABILITY_NOT_EXPOSED
-EAPP_PLUGIN_NOT_FOUND
-EAPP_PLUGIN_INACTIVE
-EAPP_BINDING_INVALID
-EAPP_BINDING_DUPLICATE
-EAPP_BINDING_CLOSED
-EAPP_LIFECYCLE_INVALID
-EAPP_DISCOVERY_SCOPE_INVALID
-EAPP_UNSUPPORTED
-EAPP_INTERNAL
+| 错误码 | 何时返回 |
+|---|---|
+| `EAPP_IDENTITY_INVALID` | `domain` 或 `id` 为空（`ID-1`、`ID-2`） |
+| `EAPP_IDENTITY_DUPLICATE` | 同一个 `(domain, id)` 内已存在相同的 `instance`（`ID-3`） |
+| `EAPP_CAPABILITY_NOT_FOUND` | `CapabilityRef` 所指的能力在任何已注册 Plugin 上都不存在 |
+| `EAPP_CAPABILITY_NOT_EXPOSED` | 该能力存在，但 `bind` 的 `from` 一方未暴露它（`O-2`、`B-2`） |
+| `EAPP_PLUGIN_NOT_FOUND` | `PluginRef` 所指的 Plugin 不在当前 Trust Scope 内（`D-1`、`B-1`） |
+| `EAPP_PLUGIN_INACTIVE` | 操作要求该 Plugin 处于 ACTIVE，而它处于 INACTIVE |
+| `EAPP_BINDING_INVALID` | 目标 Binding 不存在（`CC-6`） |
+| `EAPP_BINDING_DUPLICATE` | 已存在一个非 CLOSED 的同 `(from, to, capability)` Binding（`B-6`） |
+| `EAPP_BINDING_CLOSED` | 目标 Binding 已是 CLOSED（`CC-7`） |
+| `EAPP_LIFECYCLE_INVALID` | 请求的状态转移不在 `LC-1`–`LC-4` 之内（`LC-6`） |
+| `EAPP_DISCOVERY_SCOPE_INVALID` | `DiscoveryScope.trustLevel` 不是 `L0` / `L1` / `L2` 之一（§11.2） |
+| `EAPP_UNSUPPORTED` | 操作依赖的能力不被该 Transport 支持（`TR-9`） |
+| `EAPP_INTERNAL` | 实现遇到无法归入其他任何码的失败。MUST NOT 用它替代本文件已为某种情况规定的码 |
+
 ```
+ER-1  实现为一个条件返回的错误码 MUST 是本文件为该条件规定的那个码。
+ER-2  每个在附录 D 中登记的错误码 MUST 在本文件中被某一条款规定其产生条件。
+```
+
+`ER-2` 由 `check:spec` 的第八条规则机械检查；`ER-1` 由实现方的测试检查。
 
 ---
 
@@ -1564,25 +1571,25 @@ CC-9  一个 Binding MAY 派生多个 Channel，各自 mode 不同。
 
 错误对象的形状与其构造规则见 §18。各层的 code 联合按层扩展，MUST NOT 重命名或改义既有码。
 
-本层贡献的错误码：
+**本层错误码与它们的产生条件**：
 
-```text
-EAPP_CHANNEL_INVALID
-EAPP_CHANNEL_CLOSED
-EAPP_CHANNEL_DRAINING
-EAPP_MODE_INVALID
-EAPP_DELIVERY_UNSUPPORTED
-EAPP_CURSOR_INVALID
-EAPP_CURSOR_UNSUPPORTED
-EAPP_CURSOR_TOO_OLD          日志已压缩到无法定位请求位置（§26.2 规则 6）
-EAPP_SUBSCRIPTION_INVALID    订阅构造参数非法（§27）
-EAPP_LEASE_EXPIRED
-EAPP_LEASE_CLOSED
-EAPP_LEASE_CONFLICT
-EAPP_TIMEOUT                 截止时间到达（§23.1 的 deadline）
-EAPP_UNSUPPORTED
-EAPP_INTERNAL
-```
+| 错误码 | 何时返回 |
+|---|---|
+| `EAPP_CHANNEL_INVALID` | 目标 Channel 不存在，或不是本层创建的 Channel（`CC-1`、`SUB-1`） |
+| `EAPP_CHANNEL_CLOSED` | Channel 已是 CLOSED，而该操作要求它未关闭（`CH-3`） |
+| `EAPP_CHANNEL_DRAINING` | Channel 处于 DRAINING，而该操作属于新工作（§22.4） |
+| `EAPP_MODE_INVALID` | 操作与 `Channel.mode` 不匹配（`RQ-1`、`EV-1`、`ST-1`） |
+| `EAPP_DELIVERY_UNSUPPORTED` | 给 stream / state Channel 指定 `at-most-once`（`DL-6`、`CC-5`） |
+| `EAPP_CURSOR_INVALID` | 位置参数既不是 `earliest` / `latest`，也不是本 Transport 签发的位置（§26.2） |
+| `EAPP_CURSOR_UNSUPPORTED` | Transport 不支持位置（`CR-5`） |
+| `EAPP_CURSOR_TOO_OLD` | 请求的位置早于保留起点（§26.2 规则 6、规则 7） |
+| `EAPP_SUBSCRIPTION_INVALID` | 订阅构造参数非法：`mode` 不在取值域内，或 `mode` 为 `group` 而 `group` 为空（`SUB-4`） |
+| `EAPP_LEASE_EXPIRED` | 操作针对一个已过期的认领（`L-6`） |
+| `EAPP_LEASE_CLOSED` | 操作针对一个已终结的 `AckContext`（`AK-5`） |
+| `EAPP_LEASE_CONFLICT` | 该位置已被另一个 ACTIVE Lease 持有（`L-2`） |
+| `EAPP_TIMEOUT` | 请求的截止时间到达（`RQ-4`、`OP-5`） |
+| `EAPP_UNSUPPORTED` | 见 §18 |
+| `EAPP_INTERNAL` | 见 §18 |
 
 ---
 
@@ -2326,32 +2333,25 @@ CAS 的正确性建立在全序之上，故不存在该豁免，能力标志相�
 
 ## 47. 错误模型
 
-本层贡献的错误码：
+**本层错误码与它们的产生条件**：
 
-```text
-EAPP_STATE_UNSUPPORTED
-EAPP_WATCH_UNSUPPORTED
-EAPP_STATE_KEY_INVALID
-EAPP_STATE_KEY_NOT_FOUND
-EAPP_STATE_VALUE_INVALID
-EAPP_STATE_PATTERN_INVALID
-EAPP_STATE_ACTOR_REQUIRED
-EAPP_REVISION_INVALID
-EAPP_REVISION_CONFLICT
-EAPP_SNAPSHOT_INVALID
-```
+| 错误码 | 何时返回 |
+|---|---|
+| `EAPP_STATE_UNSUPPORTED` | Transport 声明 `supportsState = false`，或 `set` / `delete` / `restore` 落在 `supportsStateRevision = false` 上（§46.2） |
+| `EAPP_WATCH_UNSUPPORTED` | Transport 声明 `supportsStateWatch = false`（§46.2） |
+| `EAPP_STATE_KEY_INVALID` | `key` 为空（`SC-1`） |
+| `EAPP_STATE_KEY_NOT_FOUND` | 以 `expectedRevision = null` 删除一个从未存在的 key（`DEL-4`） |
+| `EAPP_STATE_VALUE_INVALID` | 同时给出 `value` 与 `deleted = true`（`SU-3`），或 `deleted` 出现而不为真（`SU-9`） |
+| `EAPP_STATE_PATTERN_INVALID` | `StatePattern` 不满足 §42 的逐字段校验 |
+| `EAPP_STATE_ACTOR_REQUIRED` | `actor` 无法解析，且 Channel 没有 `owner`（§44.1） |
+| `EAPP_REVISION_INVALID` | 位置不是本 Transport 签发，或 `writeStateWithRevision` 收到一个 `<= head` 的值（§37.2、§37.3） |
+| `EAPP_REVISION_CONFLICT` | CAS 失败：key 的存在性或位置与 `expectedRevision` 不符（`CF-2`） |
+| `EAPP_SNAPSHOT_INVALID` | 快照来自另一个 Channel；或 `restore` 的 `mode` 不在取值域内（§43.3） |
 
-**复用的 Composition Core / Interaction Layer 既有码**（MUST NOT 重复定义）：
+**复用的其他两卷既有码**（MUST NOT 重复定义）：
+`EAPP_MODE_INVALID`、`EAPP_DELIVERY_UNSUPPORTED`、`EAPP_CURSOR_TOO_OLD`、`EAPP_UNSUPPORTED`、`EAPP_INTERNAL` 的产生条件见 §18 与 §33。
 
-```
-EAPP_MODE_INVALID           （Interaction Layer）    channel.mode 与操作不匹配
-EAPP_DELIVERY_UNSUPPORTED   （Interaction Layer）    delivery 与 mode 不匹配
-EAPP_UNSUPPORTED            （Composition Core / Interaction Layer）  能力不支持
-EAPP_CURSOR_TOO_OLD         （Interaction Layer）   日志已压缩到无法定位请求位置
-EAPP_INTERNAL               （Composition Core）
-```
-
-错误对象的形状与其构造规则见 §18。附录 D 是三层的完整登记。
+错误对象的形状与其构造规则见 §18。附录 D 是三个分卷的完整登记。
 
 **retryable 赋值规则**：
 
@@ -2559,7 +2559,7 @@ OP-9  声明 C1、C2、C3、I1 或 I6 中任一等级的实现 MUST 同时声明
 
 ### B.1 Composition Core（§4–§21）
 
-首次冻结于协议版本 `3.0.0`。后续新增：`C-7`（`3.3.0`）。
+首次冻结于协议版本 `3.0.0`。后续新增：`C-7`（`3.3.0`）、`ER-1` / `ER-2`（`3.5.0`）。
 
 ```text
 ID-1  domain MUST NOT be empty.
@@ -2621,6 +2621,9 @@ CHB-1  Composition Core MUST NOT define Channel interaction semantics.
 BR-1  Bootstrap MUST NOT be replaced by nonexistent.
 BR-2  Bootstrap MUST NOT depend on Plugins.
 BR-3  Bootstrap MUST provide initial Discovery.
+
+ER-1  实现为一个条件返回的错误码 MUST 是规范为该条件规定的那个码。
+ER-2  每个在附录 D 中登记的错误码 MUST 在正文中被某一条款规定其产生条件。
 ```
 
 ### B.2 Interaction Layer（§22–§34）
@@ -2790,62 +2793,56 @@ OP-9   声明 C1、C2、C3、I1 或 I6 中任一等级的实现 MUST 声明对�
 本附录是三个分卷错误码的并集，用于避免同一语义在不同分卷被赋予两个码。
 错误对象的形状与其构造规则见 §18。
 
-本附录是一份**登记**，不是触发条件的定义处 —— 一个码在哪些条款下产生，见 D.1 的"产生它的条款"列。
+**一个码的产生条件只在一处规定。** 每个码的「何时返回」写在它的归属分卷的错误模型里：
+Composition Core 见 §18，Interaction Layer 见 §33，State Mode 见 §47。
+本附录不重复那些条件，只把它们汇总到一处，好让「三个分卷一共定义了哪些码」有一个可核对的答案。
 
-### D.1 有触发条款的码
+```
+ER-2  每个在附录 D 中登记的错误码 MUST 在本文件中被某一条款规定其产生条件。
+```
 
-| 错误码 | 分卷 | 产生它的条款 |
+`check:spec` 的第八条规则检查这一条：本表中的每个码 MUST 也在正文的某一处被规定产生条件。
+
+| 错误码 | 分卷 | 产生条件见 |
 |---|---|---|
-| `EAPP_BINDING_DUPLICATE` | Composition Core | §9.8 |
-| `EAPP_BINDING_INVALID` | Composition Core | §9.7、§32 |
-| `EAPP_BINDING_CLOSED` | Composition Core | §32 |
-| `EAPP_CURSOR_TOO_OLD` | Interaction Layer | §26.2、§49 |
-| `EAPP_CURSOR_UNSUPPORTED` | Interaction Layer | §26.3、§30.4 |
-| `EAPP_DELIVERY_UNSUPPORTED` | Interaction Layer | §24、§32、§44.1 |
-| `EAPP_LEASE_CLOSED` | Interaction Layer | §29 |
-| `EAPP_MODE_INVALID` | Interaction Layer | §44.1 |
-| `EAPP_REVISION_CONFLICT` | State Mode | §39.2、§39.4、§40.2、§44.5 |
-| `EAPP_REVISION_INVALID` | State Mode | §37.2、§37.3、§39.5 |
-| `EAPP_SNAPSHOT_INVALID` | State Mode | §43.3 |
-| `EAPP_STATE_ACTOR_REQUIRED` | State Mode | §44.1 |
-| `EAPP_STATE_KEY_NOT_FOUND` | State Mode | §40.1、§40.2、§40.5 |
-| `EAPP_STATE_PATTERN_INVALID` | State Mode | §42 |
-| `EAPP_STATE_UNSUPPORTED` | State Mode | §44.1、§46.2 |
-| `EAPP_STATE_VALUE_INVALID` | State Mode | §39.3 |
-| `EAPP_TIMEOUT` | 插件开发表面 | §52、§54 |
-| `EAPP_UNSUPPORTED` | 三个分卷 | §30.4、§44.1、§46.2 |
-| `EAPP_WATCH_UNSUPPORTED` | State Mode | §46.2 |
+| `EAPP_IDENTITY_INVALID` | Composition Core | §18 |
+| `EAPP_IDENTITY_DUPLICATE` | Composition Core | §18 |
+| `EAPP_CAPABILITY_NOT_FOUND` | Composition Core | §18 |
+| `EAPP_CAPABILITY_NOT_EXPOSED` | Composition Core | §18 |
+| `EAPP_PLUGIN_NOT_FOUND` | Composition Core | §18 |
+| `EAPP_PLUGIN_INACTIVE` | Composition Core | §18 |
+| `EAPP_BINDING_INVALID` | Composition Core | §18 |
+| `EAPP_BINDING_DUPLICATE` | Composition Core | §18 |
+| `EAPP_BINDING_CLOSED` | Composition Core | §18 |
+| `EAPP_LIFECYCLE_INVALID` | Composition Core | §18 |
+| `EAPP_DISCOVERY_SCOPE_INVALID` | Composition Core | §18 |
+| `EAPP_CHANNEL_INVALID` | Interaction Layer | §33 |
+| `EAPP_CHANNEL_CLOSED` | Interaction Layer | §33 |
+| `EAPP_CHANNEL_DRAINING` | Interaction Layer | §33 |
+| `EAPP_MODE_INVALID` | Interaction Layer | §33 |
+| `EAPP_DELIVERY_UNSUPPORTED` | Interaction Layer | §33 |
+| `EAPP_CURSOR_INVALID` | Interaction Layer | §33 |
+| `EAPP_CURSOR_UNSUPPORTED` | Interaction Layer | §33 |
+| `EAPP_CURSOR_TOO_OLD` | Interaction Layer | §33 |
+| `EAPP_SUBSCRIPTION_INVALID` | Interaction Layer | §33 |
+| `EAPP_LEASE_EXPIRED` | Interaction Layer | §33 |
+| `EAPP_LEASE_CLOSED` | Interaction Layer | §33 |
+| `EAPP_LEASE_CONFLICT` | Interaction Layer | §33 |
+| `EAPP_TIMEOUT` | 插件开发表面 | §33 |
+| `EAPP_STATE_UNSUPPORTED` | State Mode | §47 |
+| `EAPP_WATCH_UNSUPPORTED` | State Mode | §47 |
+| `EAPP_STATE_KEY_INVALID` | State Mode | §47 |
+| `EAPP_STATE_KEY_NOT_FOUND` | State Mode | §47 |
+| `EAPP_STATE_VALUE_INVALID` | State Mode | §47 |
+| `EAPP_STATE_PATTERN_INVALID` | State Mode | §47 |
+| `EAPP_STATE_ACTOR_REQUIRED` | State Mode | §47 |
+| `EAPP_REVISION_INVALID` | State Mode | §47 |
+| `EAPP_REVISION_CONFLICT` | State Mode | §47 |
+| `EAPP_SNAPSHOT_INVALID` | State Mode | §47 |
+| `EAPP_UNSUPPORTED` | 三个分卷 | §18 |
+| `EAPP_INTERNAL` | 三个分卷 | §18 |
 
-### D.2 仅登记、无触发条款的码
-
-| 错误码 | 分卷 |
-|---|---|
-| `EAPP_IDENTITY_INVALID` | Composition Core |
-| `EAPP_IDENTITY_DUPLICATE` | Composition Core |
-| `EAPP_CAPABILITY_NOT_FOUND` | Composition Core |
-| `EAPP_CAPABILITY_NOT_EXPOSED` | Composition Core |
-| `EAPP_PLUGIN_NOT_FOUND` | Composition Core |
-| `EAPP_PLUGIN_INACTIVE` | Composition Core |
-| `EAPP_LIFECYCLE_INVALID` | Composition Core |
-| `EAPP_DISCOVERY_SCOPE_INVALID` | Composition Core |
-| `EAPP_INTERNAL` | 三个分卷 |
-| `EAPP_CHANNEL_INVALID` | Interaction Layer |
-| `EAPP_CHANNEL_CLOSED` | Interaction Layer |
-| `EAPP_CHANNEL_DRAINING` | Interaction Layer |
-| `EAPP_CURSOR_INVALID` | Interaction Layer |
-| `EAPP_SUBSCRIPTION_INVALID` | Interaction Layer |
-| `EAPP_LEASE_EXPIRED` | Interaction Layer |
-| `EAPP_LEASE_CONFLICT` | Interaction Layer |
-| `EAPP_STATE_KEY_INVALID` | State Mode |
-
-这 17 个码在本文件中有登记，但**没有任何条款规定它们的产生条件**。
-两个实现可以为同一个码规定不同的触发条件，而两者都能自称合规 ——
-合规的判据是不变量，而不变量没有提到这些码。
-
-这是一处已知缺口。收口有两种方式：为它们补上触发条款，或把它们从登记中移除。
-在此之前，这些码的语义不构成跨实现契约。
-
-### D.3 retryable 的赋值规则
+### D.1 retryable 的赋值规则
 
 ```
 EAPP_REVISION_CONFLICT  → true   （CAS 冲突可重试）

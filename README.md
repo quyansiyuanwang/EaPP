@@ -12,7 +12,7 @@
 
 ## 1. 规范
 
-唯一规范性正文：[`docs/spec/eapp.md`](docs/spec/eapp.md)，协议版本 `3.4.0`。
+唯一规范性正文：[`docs/spec/eapp.md`](docs/spec/eapp.md)，协议版本 `3.5.0`。
 
 | 分卷 | 内容 |
 |---|---|
@@ -28,7 +28,7 @@ Composition Core  →  Interaction Layer  →  State Mode  →  Transport
 ```
 
 ```
-不变量        219 条，全部在正文中被陈述（清单见附录 B）
+不变量        221 条，全部在正文中被陈述（清单见附录 B）
 章节          54 节，编号连续
 错误码        36 个（登记见附录 D）
 ```
@@ -97,7 +97,7 @@ npm run check:docs   # 每条相对链接解析到真实文件；正文语域符
 
 <https://github.com/quyansiyuanwang/EaPP/tree/reference>
 
-它们固定于协议 `3.3.0`（标签 `reference-3.3.0`），尚未同步到 `3.4.0`。
+它们固定于协议 `3.3.0`（标签 `reference-3.3.0`），尚未同步到当前版本。
 
 第二份实现存在的理由只有一个：**规范正文本身是否足够写出一份实现**。它由没有读过第一份的人、
 只对着规范正文写出。两份实现可以互相参照时，它们会在同一个地方一起犯错，然后双双自称合规 ——
