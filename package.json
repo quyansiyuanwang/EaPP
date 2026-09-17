@@ -3,35 +3,14 @@
   "version": "3.3.0",
   "private": true,
   "type": "module",
-  "description": "EaPP — Everything as a Plugin Protocol / 万物皆插件协议. A three-layer plugin composition and interaction protocol, plus its reference implementation and conformance suite.",
+  "description": "EaPP — Everything as a Plugin Protocol / 万物皆插件协议. The normative specification, and the gates that keep it self-consistent.",
   "license": "MIT",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "build": "pnpm -r build",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:conformance": "vitest run tests/conformance",
-    "check:invariants": "node tools/check-invariants.mjs",
+    "check:spec": "node tools/check-spec.mjs",
     "check:docs": "node tools/check-docs.mjs",
-    "check:duplicates": "node tools/check-duplicates.mjs",
-    "check:counts": "node tools/check-counts.mjs",
-    "conformance:external": "node conformance/harness/run.mjs",
-    "conformance:list": "node conformance/harness/run.mjs --list",
-    "demo": "tsx examples/hello-plugins/index.ts",
-    "example:first": "tsx examples/my-first-plugin/index.ts",
-    "example:queue": "tsx examples/job-queue/index.ts",
-    "example:transport": "tsx examples/array-transport/index.ts",
-    "example:cross-process": "tsx examples/cross-process/index.ts",
-    "examples": "pnpm run demo && pnpm run example:first && pnpm run example:queue && pnpm run example:transport && pnpm run example:cross-process",
-    "verify": "pnpm run typecheck && pnpm run test && pnpm run examples && pnpm run check:invariants && pnpm run check:docs && pnpm run check:duplicates && pnpm run check:counts && pnpm run conformance:external"
-  },
-  "devDependencies": {
-    "@types/node": "^22.20.3",
-    "tsx": "^4.23.13",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.1"
+    "verify": "npm run check:spec && npm run check:docs"
   }
 }

@@ -1,11 +1,3 @@
-# ---- deps / build output ----
-node_modules/
-dist/
-build/
-*.tsbuildinfo
-.vitest/
-coverage/
-
 # ---- editors / OS ----
 .vscode/*
 !.vscode/extensions.json
@@ -15,9 +7,10 @@ Thumbs.db
 
 # ---- logs ----
 *.log
-npm-debug.log*
-pnpm-debug.log*
 
 # ---- local scratch ----
 tmp/
 *.tmp
+
+# ---- Node (the gates are dependency-free scripts, but `npm run` writes this) ----
+node_modules/

@@ -1,0 +1,29 @@
+name: spec
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# This repository is the normative specification. It contains no implementation and
+# no dependency, so the only thing CI can check here is whether the *text* holds
+# together: that every declared invariant is actually stated, that every `§N`
+# reference resolves, that no TypeScript has crept back into the normative notation,
+# and that the normative text does not link outside `docs/spec/`.
+#
+# The implementation and its gates live on the `reference` branch. Nothing here runs
+# them, and nothing here should: a specification that can only be verified by its own
+# author's code is not a specification.
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No install step: the gates import node built-ins and nothing else.
+      - name: Verify the specification
+        run: npm run verify
