@@ -38,9 +38,15 @@ export interface PluginModule {
   resume?(): Promise<void> | void;
   /** Request handlers keyed by capability name (request mode). */
   readonly handlers?: Readonly<Record<string, RequestHandler>>;
-  /** Event/stream consumers, keyed by capability name. */
-  readonly onEvent?: Readonly<Record<string, (payload: unknown) => void | Promise<void>>>;
 }
+
+// NOTE: there is deliberately no `onEvent` hook here.
+//
+// An earlier revision declared one and never called it anywhere, which is the worst kind
+// of API: it looks like a supported extension point, accepts a handler, and silently
+// discards it. Event and stream consumption goes through `runtime.subscribe()`, which
+// returns a real v3.1 Subscription with a cursor the plugin can acknowledge. If a
+// declarative event hook is ever wanted, it must ship with a call site and a test.
 
 export interface PluginDescriptor {
   readonly manifest: PluginManifest;

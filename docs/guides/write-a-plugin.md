@@ -40,7 +40,6 @@ interface PluginModule {
   suspend?(): Promise<void> | void;
   resume?(): Promise<void> | void;
   readonly handlers?: Readonly<Record<string, RequestHandler>>;
-  readonly onEvent?: Readonly<Record<string, (payload: unknown) => void | Promise<void>>>;
 }
 ```
 
@@ -54,7 +53,6 @@ interface PluginModule {
 | `deactivate()` | 否 | 离开 `ACTIVE` 时调用；契约要求它**幂等** |
 | `suspend()` / `resume()` | 否 | 离开 / 回到 Active Composition 时调用 |
 | `handlers` | 否 | **按 capability 名索引**的请求处理器（request 模式）。`handlers['greeting.render']` 服务名为 `greeting.render` 的能力 |
-| `onEvent` | 否 | 事件/流消费者，同样按 capability 名索引。**当前参考实现不会调用它**，见 §8 |
 
 `Capability` 不是接口。它描述"可以参与什么类型的组合"，
 不是方法列表、不是 RPC 端点、不是 HTTP 路由。契约里的 `handlers` 键名与
@@ -386,16 +384,22 @@ dispatcher 读回来交给 handler —— 这样才真正跑过了三层。它�
 
 ## 7. 错误如何浮现
 
-三层共用一个运行时错误类 `EappError`（`class EappError extends Error`，定义在 `@eapp/core`，
-由 `@eapp/runtime` 再导出）：
+三层共用一个运行时错误类 `EappError`（`class EappError extends Error`）。
+它**只定义在 `@eapp/core`**，`@eapp/runtime` 并不再导出它：
 
 ```typescript
+// 插件里这样拿到它（相对路径与示例一致；见 §2 的导入说明）
+import { EappError } from '../../packages/core/src/index.js';
+
 class EappError extends Error {
   readonly code: string;
   readonly details?: unknown;
   readonly retryable: boolean;
 }
 ```
+
+同一个类被三层共用，所以 handler 里 `new` 出来的实例跨过 Channel 之后，
+调用方的 `instanceof EappError` 判断与 `error.code` 读取都成立。
 
 handler 抛出的错误会在响应信封里变成一个**码**，调用方看到的就是这个码：
 
@@ -442,14 +446,27 @@ timeout（handler 睡 40ms、timeoutMs 5） -> EAPP_TIMEOUT retryable=false
 | 把 Binding 状态"设"成某个值 | 它由三件事派生。想让它变成 `ACTIVE`，去让两端 `ACTIVE` 且 `from` 仍暴露该能力 |
 | 在 handler 里假设 `payload` 的形状 | `payload` 是 `unknown`；Core 不做 schema 校验 |
 | 假设同一条 Channel 只有一个消费者 | 那是 v3.0 之外的编排问题；排他性由 [`ConsumerGroup`](../reference/consumer-group.md) + [`Lease`](../reference/lease.md) 表达，不在插件内部发明 |
-| 依赖 `onEvent` 被调用 | 见下 |
+| 依赖 `onEvent` 之类的声明式钩子 | **没有这个字段**，见下 |
 
-**`onEvent` 当前不会被执行。** `PluginModule.onEvent` 是契约里的字段，
-但参考实现的运行时没有任何调用点：`register()` 只保存模块，`#dispatchLoop()` 只处理
+**没有 `onEvent` 钩子，这是有意的。** 早期版本声明过一个，
+但运行时**从来没有调用点** —— `register()` 只保存模块，`#dispatchLoop()` 只处理
 request/response 信封，`publish()` 只做 `transport.send()`。
-演示里 `metrics` 插件的 `onEvent` 因此**从未被触发**，它的 `samples` 数组始终是空的；
-演示第 5 段真正在消费事件的是订阅方应用代码（`for await (const message of subscription)`），不是插件钩子。
-在实现补齐之前，**把事件消费写成显式的 `runtime.subscribe()`**，不要指望 `onEvent`。
+
+一个"看起来支持、接受 handler、然后静默丢弃"的扩展点比没有这个扩展点更糟：
+它会让插件作者写下一段永远不会执行的代码，并且以为它已经跑通了。
+该字段已被**删除**，而不是留在契约里继续骗人。
+
+**事件与流的消费一律走显式的 `runtime.subscribe()`** ——
+它返回一个真正的 v3.1 [`Subscription`](../reference/subscription.md)，
+带一个由你 `ack()` 推进的 [`Cursor`](../reference/cursor.md)：
+
+```typescript
+const subscription = await runtime.subscribe(channel.id, { type: 'metric' });
+for await (const message of subscription) {
+  handle(message.payload);
+  await message.ack();   // 只有 ack 会推进 cursor（CR-1）
+}
+```
 
 ---
 

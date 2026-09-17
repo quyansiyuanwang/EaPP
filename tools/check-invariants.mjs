@@ -84,11 +84,15 @@ function extractSpecInvariants(file) {
   if (start < 0) throw new Error(`${file}: no invariant summary section found`);
 
   const declared = new Map(); // id -> { line, coveredBy|null }
+  let end = lines.length;
 
   for (let i = start; i < lines.length; i += 1) {
     const raw = lines[i];
     const heading = /^(#{1,6})\s/.exec(raw);
-    if (heading && heading[1].length <= level) break;
+    if (heading && heading[1].length <= level) {
+      end = i;
+      break;
+    }
 
     const m = SUMMARY_LINE.exec(raw);
     if (!m) continue;
@@ -101,7 +105,13 @@ function extractSpecInvariants(file) {
     }
   }
 
-  return declared;
+  // The body — everything except the summary block. An invariant that appears ONLY in the
+  // summary is listed but never actually stated, which reads as a complete invariant to a
+  // reader and to this gate. That is how v3.1 lost CC-1 and CC-2 for a while: the summary
+  // carried the IDs, the body stated nothing, and every check still passed.
+  const body = [...lines.slice(0, start - 1), ...lines.slice(end)].join('\n');
+
+  return { declared, body };
 }
 
 /** Invariant IDs named by a conformance suite, and the ids of tests with empty bodies. */
@@ -158,23 +168,31 @@ function main() {
   let failed = false;
 
   for (const entry of MANIFEST) {
-    const declared = extractSpecInvariants(entry.spec);
+    const { declared, body } = extractSpecInvariants(entry.spec);
     const { named, empty, missing } = extractTestFacts(entry.tests);
 
     const uncovered = [];
+    const undeclaredInBody = [];
     for (const [id, meta] of declared) {
+      // Declared in the summary but never stated in the body: the ID exists, the rule does not.
+      if (!new RegExp(`\\b${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(body)) {
+        undeclaredInBody.push({ id, line: meta.line });
+      }
       if (named.has(id)) continue;
       if (meta.coveredBy) continue;
       uncovered.push({ id, line: meta.line });
     }
     uncovered.sort((a, b) => a.line - b.line);
+    undeclaredInBody.sort((a, b) => a.line - b.line);
 
     const unknown = [...named]
       .filter((id) => !declared.has(id))
       .filter((id) => !id.startsWith('EAPP_'))
       .sort();
 
-    if (uncovered.length || empty.length || missing.length) failed = true;
+    if (uncovered.length || undeclaredInBody.length || empty.length || missing.length) {
+      failed = true;
+    }
 
     report.push({
       layer: entry.layer,
@@ -183,6 +201,7 @@ function main() {
       declaredCount: declared.size,
       coveredCount: declared.size - uncovered.length,
       uncovered,
+      undeclaredInBody,
       unknown,
       empty,
       missingTestFiles: missing,
@@ -209,9 +228,14 @@ function main() {
     }
 
     for (const u of r.uncovered) lines.push(`    UNCOVERED  ${u.id}  (spec line ${u.line})`);
+    for (const d of r.undeclaredInBody) {
+      lines.push(`    UNSTATED   ${d.id}  (listed at line ${d.line}, never stated in the body)`);
+    }
     for (const e of r.empty) lines.push(`    EMPTY BODY ${e.label}  (${e.file}:${e.line})`);
     if (r.unknown.length) lines.push(`    note       named but not declared: ${r.unknown.join(', ')}`);
-    lines.push(`  gate      ${r.uncovered.length || r.empty.length ? 'FAIL' : 'PASS'}`);
+    lines.push(
+      `  gate      ${r.uncovered.length || r.undeclaredInBody.length || r.empty.length ? 'FAIL' : 'PASS'}`,
+    );
   }
 
   lines.push('');

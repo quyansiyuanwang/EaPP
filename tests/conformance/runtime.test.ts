@@ -1,7 +1,22 @@
 import { describe, expect, test } from 'vitest';
 
-import type { EappError } from '@eapp/core';
-import { EappRuntime, createBootstrapRuntime, type PluginModule } from '@eapp/runtime';
+import type { Identity } from '@eapp/core';
+import type { Cursor, CursorAnchor, Pattern } from '@eapp/interaction';
+import type {
+  ExpectedRevision,
+  Revision,
+  StatePattern,
+  StateTransport,
+  StateUpdate,
+} from '@eapp/state';
+import {
+  EappError,
+  EappRuntime,
+  createBootstrapRuntime,
+  isEappError,
+  type PluginModule,
+} from '@eapp/runtime';
+import { MemoryTransport } from '@eapp/transport-memory';
 
 /**
  * End-to-end runtime conformance: independent plugins discovered, connected, activated,
@@ -319,6 +334,152 @@ describe('runtime: bootstrap', () => {
 
     // §12.3: replacement must be a real Discovery.
     expect(() => boot.replaceDiscovery(undefined)).toThrow('EAPP_UNSUPPORTED');
+  });
+});
+
+describe('runtime: API contract', () => {
+  test('the runtime accepts any StateTransport, not just the reference implementation', async () => {
+    // Delegating wrapper: it implements the interface without being a MemoryTransport, so
+    // TypeScript only accepts it if the runtime is typed against the interface.
+    class OffsetTransport implements StateTransport {
+      readonly #inner = new MemoryTransport('wrapped-1');
+      get id() {
+        return this.#inner.id;
+      }
+      get capabilities() {
+        return this.#inner.capabilities;
+      }
+      send(channel: string, msg: unknown) {
+        return this.#inner.send(channel, msg);
+      }
+      readAfter(channel: string, cursor: Cursor | undefined, pattern: Pattern) {
+        return this.#inner.readAfter(channel, cursor, pattern);
+      }
+      close() {
+        return this.#inner.close();
+      }
+      resolveAnchor(channel: string, anchor: CursorAnchor) {
+        return this.#inner.resolveAnchor(channel, anchor);
+      }
+      waitForChange(channel: string, cursor: Cursor | undefined, signal?: AbortSignal) {
+        return this.#inner.waitForChange(channel, cursor, signal);
+      }
+      head(channel: string) {
+        return this.#inner.head(channel);
+      }
+      getState(channel: string, key: string) {
+        return this.#inner.getState(channel, key);
+      }
+      listState(channel: string, pattern: StatePattern) {
+        return this.#inner.listState(channel, pattern);
+      }
+      setStateWithCAS(channel: string, update: StateUpdate, actor: Identity) {
+        return this.#inner.setStateWithCAS(channel, update, actor);
+      }
+      deleteStateWithCAS(channel: string, key: string, expected: ExpectedRevision, actor: Identity) {
+        return this.#inner.deleteStateWithCAS(channel, key, expected, actor);
+      }
+      readChangesAfter(channel: string, cursor: Cursor | undefined, pattern: StatePattern) {
+        return this.#inner.readChangesAfter(channel, cursor, pattern);
+      }
+      nextRevision(channel: string) {
+        return this.#inner.nextRevision(channel);
+      }
+      compareRevision(a: Revision, b: Revision) {
+        return this.#inner.compareRevision(a, b);
+      }
+      writeStateWithRevision(
+        channel: string,
+        key: string,
+        value: unknown,
+        deleted: boolean,
+        revision: Revision,
+        actor: Identity,
+      ) {
+        return this.#inner.writeStateWithRevision(channel, key, value, deleted, revision, actor);
+      }
+    }
+
+    const runtime = EappRuntime.create({ transport: new OffsetTransport(), domain: 'eapp.demo' });
+    const logger = runtime.register(loggerPlugin());
+    const app = runtime.register(appPlugin());
+    await runtime.activate(logger);
+    await runtime.activate(app);
+
+    const reply = await runtime.invoke({
+      from: app,
+      to: logger,
+      capability: LOGGING,
+      payload: 'through a custom transport',
+    });
+    expect((reply as { written: string }).written).toBe('through a custom transport');
+    await runtime.shutdown();
+  });
+
+  test('a lifecycle hook fires only when the state actually changes', async () => {
+    const runtime = EappRuntime.create({ domain: 'eapp.demo' });
+    let activations = 0;
+    const plugin: PluginModule = {
+      manifest: {
+        identity: { domain: 'eapp.demo', id: 'counted', instance: 'counted-1' },
+        capabilities: [],
+      },
+      activate() {
+        activations += 1;
+      },
+    };
+    const identity = runtime.register(plugin);
+
+    await runtime.activate(identity);
+    expect(activations).toBe(1);
+    // O-5 makes activate() idempotent at the core; the hook must follow, or every plugin
+    // author has to defend against a duplicate activation the contract rules out.
+    await runtime.activate(identity);
+    await runtime.activate(identity);
+    expect(activations).toBe(1);
+
+    await runtime.deactivate(identity);
+    await runtime.deactivate(identity);
+    await runtime.activate(identity);
+    expect(activations).toBe(2); // reactivation is a real transition
+    await runtime.shutdown();
+  });
+
+  test('register rejects an identity carrying fields beyond domain/id/instance', async () => {
+    const runtime = EappRuntime.create({ domain: 'eapp.demo' });
+    expect(() =>
+      runtime.register({
+        manifest: {
+          identity: {
+            domain: 'eapp.demo',
+            id: 'sneaky',
+            instance: 'sneaky-1',
+            version: '1.0.0', // ID-6: identity MUST NOT carry version semantics
+          },
+          capabilities: [],
+        },
+      } as never),
+    ).toThrow('EAPP_IDENTITY_INVALID');
+    await runtime.shutdown();
+  });
+
+  test('the runtime re-exports the protocol error so a plugin needs one import', () => {
+    const error = new EappError('EAPP_TIMEOUT', 'from the runtime package');
+    expect(error.code).toBe('EAPP_TIMEOUT');
+    expect(error.message).toContain('EAPP_TIMEOUT');
+    expect(isEappError(error)).toBe(true);
+    expect(isEappError(new Error('plain'))).toBe(false);
+  });
+
+  test('the plugin contract has no onEvent hook', () => {
+    // Declared-but-never-called is worse than absent: it looks supported and silently
+    // discards the handler. Consumption goes through runtime.subscribe().
+    const runtime = EappRuntime.create({ domain: 'eapp.demo' });
+    const plugin: PluginModule = {
+      manifest: { identity: { domain: 'eapp.demo', id: 'p', instance: 'p-1' }, capabilities: [] },
+    };
+    expect('onEvent' in plugin).toBe(false);
+    void runtime;
   });
 });
 

@@ -52,7 +52,6 @@ function loggerPlugin(): PluginModule {
 }
 
 function metricsPlugin(): PluginModule {
-  const samples: number[] = [];
   return {
     manifest: {
       identity: { domain: 'acme.observability', id: 'metrics', instance: 'metrics-1' },
@@ -61,13 +60,11 @@ function metricsPlugin(): PluginModule {
     activate() {
       console.log('  [metrics] activated — ready to publish samples');
     },
-    onEvent: {
-      metrics: (payload) => {
-        samples.push((payload as { value: number }).value);
-      },
-    },
     handlers: {
-      metrics: async () => ({ count: samples.length, samples }),
+      // Nothing here consumes its own events. Consumption in this runtime is always
+      // explicit: a subscriber calls runtime.subscribe() and gets a real v3.1
+      // Subscription with a cursor it acknowledges. Section 5 shows the consumer side.
+      metrics: async () => ({ publisher: 'metrics@2.1.0' }),
     },
   };
 }

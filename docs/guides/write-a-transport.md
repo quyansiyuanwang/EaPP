@@ -599,7 +599,8 @@ const runtime = EappRuntime.create({
 ```typescript
 import { TransportSubscription } from '../../packages/interaction/src/index.js';
 import { configureStateChannel } from '../../packages/state/src/index.js';
-import { ArrayTransport } from './index.js';     // 就是本节上面那段代码所在的文件
+
+// ArrayTransport 就是本节上面那段代码里的类（在同一个文件里，无需再导入）
 
 const transport = new ArrayTransport('array-1');
 

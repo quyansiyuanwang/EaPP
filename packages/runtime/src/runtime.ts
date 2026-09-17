@@ -2,6 +2,7 @@ import {
   EappError,
   IdentityRegistry,
   PluginRegistry,
+  assertValidIdentity,
   createCompositionCore,
   identityKey,
   type Binding,
@@ -27,7 +28,7 @@ import {
   type SubscriptionOptions,
   type TransportMessage,
 } from '@eapp/interaction';
-import { configureStateChannel, type StateChannel } from '@eapp/state';
+import { configureStateChannel, type StateChannel, type StateTransport } from '@eapp/state';
 import { MemoryTransport } from '@eapp/transport-memory';
 
 import { assertManifest, type PluginModule, type RequestHandler } from './plugin.js';
@@ -72,7 +73,12 @@ export interface InvokeRequest {
 }
 
 export interface EappRuntimeOptions {
-  transport?: MemoryTransport;
+  /**
+   * Any StateTransport, not a concrete MemoryTransport. Typing this as the reference
+   * implementation made it impossible to pass a custom transport without a cast — which
+   * defeats the point of the Transport boundary.
+   */
+  transport?: StateTransport;
   /** The runtime's own identity, used as the owner of channels it configures. */
   owner?: Identity;
   domain?: string;
@@ -107,6 +113,8 @@ interface PendingInvocation {
 }
 
 const DEFAULT_TIMEOUT_MS = 5000;
+/** Fallback pacing when the transport cannot push notifications. */
+const DISPATCH_POLL_MS = 25;
 
 export function isRequestEnvelope(value: unknown): value is RequestEnvelope {
   return (
@@ -127,7 +135,7 @@ export function isResponseEnvelope(value: unknown): value is ResponseEnvelope {
 }
 
 export class EappRuntime {
-  readonly transport: MemoryTransport;
+  readonly transport: StateTransport;
   readonly core: CompositionCoreImpl;
   readonly interaction: InteractionLayerImpl;
 
@@ -197,6 +205,10 @@ export class EappRuntime {
   register(module: PluginModule): PluginRef {
     this.#assertLive();
     assertManifest(module.manifest);
+    // ID-6 / ID-5: the manifest identity is validated, not sanitised. An earlier revision
+    // copied the fields it recognised and silently dropped the rest, so an identity
+    // carrying a `version` was accepted with that field quietly removed.
+    assertValidIdentity(module.manifest.identity);
     // An identity this runtime already issued is accepted as-is; anything else is minted
     // here. ID-5 ("Identity MUST NOT be self-issued") is what makes this the runtime's
     // decision rather than the plugin's.
@@ -312,27 +324,37 @@ export class EappRuntime {
 
   async activate(plugin: PluginRef): Promise<void> {
     this.#assertLive();
-    await this.core.activate(plugin);
+    // O-5 makes activate() idempotent at the core. The plugin's hook must follow: firing it
+    // twice because the core treated the second call as a no-op would make every plugin
+    // author defend against a duplicate activation that the contract already rules out.
+    if (!(await this.#changeLifecycle(plugin, () => this.core.activate(plugin)))) return;
     await this.#modules.get(identityKey(plugin))?.activate?.();
   }
 
   async deactivate(plugin: PluginRef): Promise<void> {
     this.#assertLive();
-    await this.core.deactivate(plugin);
+    if (!(await this.#changeLifecycle(plugin, () => this.core.deactivate(plugin)))) return;
     await this.#modules.get(identityKey(plugin))?.deactivate?.();
   }
 
   /** v3.0 §7.5: suspend keeps Identity and Bindings but leaves Active Composition. */
   async suspend(plugin: PluginRef): Promise<void> {
     this.#assertLive();
-    await this.core.suspend(plugin);
+    if (!(await this.#changeLifecycle(plugin, () => this.core.suspend(plugin)))) return;
     await this.#modules.get(identityKey(plugin))?.suspend?.();
   }
 
   async resume(plugin: PluginRef): Promise<void> {
     this.#assertLive();
-    await this.core.resume(plugin);
+    if (!(await this.#changeLifecycle(plugin, () => this.core.resume(plugin)))) return;
     await this.#modules.get(identityKey(plugin))?.resume?.();
+  }
+
+  /** Runs a lifecycle operation and reports whether the state actually changed. */
+  async #changeLifecycle(plugin: PluginRef, operation: () => Promise<void>): Promise<boolean> {
+    const before = this.#registry.require(plugin).lifecycle;
+    await operation();
+    return before !== this.#registry.require(plugin).lifecycle;
   }
 
   // ---------------------------------------------------------- 通信 communicate
@@ -352,7 +374,10 @@ export class EappRuntime {
     this.#assertLive();
     const transport = this.transport;
     return TransportSubscription.create<RuntimeMessage>(channelId, options, {
-      head: async () => (await transport.resolveAnchor(channelId, 'latest')) ?? '',
+      // `resolveAnchor` and `waitForChange` are optional on the v3.1 Transport: a transport
+      // that cannot resolve anchors or push notifications simply gets the slower path.
+      head: async () =>
+        (transport.resolveAnchor ? await transport.resolveAnchor(channelId, 'latest') : '') ?? '',
       earliest: async () => '',
       readAfter: async (cursor, ack) => {
         const messages = await transport.readAfter(channelId, cursor, pattern);
@@ -371,8 +396,12 @@ export class EappRuntime {
           };
         });
       },
-      waitForChange: (cursor: string, signal: AbortSignal) =>
-        transport.waitForChange(channelId, cursor, signal),
+      ...(transport.waitForChange
+        ? {
+            waitForChange: (cursor: string, signal: AbortSignal) =>
+              transport.waitForChange?.(channelId, cursor, signal) ?? Promise.resolve(),
+          }
+        : { pollIntervalMs: DISPATCH_POLL_MS }),
     });
   }
 
@@ -471,9 +500,23 @@ export class EappRuntime {
   async #dispatchLoop(binding: Binding, channel: ManagedChannel, signal: AbortSignal): Promise<void> {
     let cursor = '';
     while (!signal.aborted) {
-      const armed: Promise<void> = this.transport
-        .waitForChange(channel.id, cursor, signal)
-        .catch(() => undefined);
+      // Arm before reading. A transport without `waitForChange` gets a bounded poll
+      // instead — but never a busy loop.
+      const armed: Promise<void> = (
+        this.transport.waitForChange
+          ? this.transport.waitForChange(channel.id, cursor, signal)
+          : new Promise<void>((resolve) => {
+              const timer = setTimeout(resolve, DISPATCH_POLL_MS);
+              signal.addEventListener(
+                'abort',
+                () => {
+                  clearTimeout(timer);
+                  resolve();
+                },
+                { once: true },
+              );
+            })
+      ).catch(() => undefined);
 
       let batch: TransportMessage[];
       try {
