@@ -19,6 +19,7 @@ import {
   TransportSubscription,
   isRequestExpired,
   newCorrelationId,
+  providesServerRole,
   type ChannelMode,
   type ConsumerGroup,
   type ConsumerGroupDeps,
@@ -36,7 +37,7 @@ import {
 import { configureStateChannel, type StateChannel, type StateTransport } from '@eapp/state';
 import { MemoryTransport } from '@eapp/transport-memory';
 
-import { assertManifest, type PluginModule, type RequestHandler } from './plugin.js';
+import { assertManifest, type PluginManifest, type PluginModule, type RequestHandler } from './plugin.js';
 
 /**
  * EaPP Runtime — the part that makes "everything is a plugin" actually usable.
@@ -167,6 +168,15 @@ export class EappRuntime {
   readonly #owner: Identity;
   readonly #defaultTimeoutMs: number;
   readonly #modules = new Map<string, PluginModule>();
+  /**
+   * The plugins this runtime actually executes.
+   *
+   * `register()` and `registerRemote()` both make a plugin addressable — bindable,
+   * discoverable — but only the first makes it this runtime's job to answer for it.
+   * In one process those were the same thing, which is why the distinction was
+   * invisible until a provider lived somewhere else.
+   */
+  readonly #hosted = new Set<string>();
   /** binding#mode -> channel, so repeated connects reuse the Channel (CC-9). */
   readonly #channels = new Map<string, ManagedChannel>();
   /** binding#mode -> in-flight creation, so concurrent connects share one Channel. */
@@ -175,6 +185,10 @@ export class EappRuntime {
   readonly #stateChannels = new Map<string, StateChannel>();
   /** bindingId -> request dispatcher. */
   readonly #dispatchers = new Map<string, AbortController>();
+  /** channelId -> this runtime answers requests there. */
+  readonly #serving = new Set<string>();
+  /** channelId -> a server-role claim has already been attempted. */
+  readonly #roleClaimed = new Set<string>();
   readonly #pending = new Map<string, PendingInvocation>();
   /** RQ-1 / RQ-2 / RQ-3: one request, at most one response, matching correlationId. */
   readonly #correlations = new CorrelationTracker();
@@ -258,7 +272,48 @@ export class EappRuntime {
       lifecycle: 'INACTIVE',
     });
     this.#modules.set(identityKey(identity), module);
+    this.#hosted.add(identityKey(identity));
     return identity;
+  }
+
+  /**
+   * Register a plugin this runtime can address but does not execute.
+   *
+   * v3.0 §5.2 refuses to require that every Plugin has the same implementation
+   * shape: it MAY be an in-process module, a process, a worker, a remote service, a
+   * device. This is the case that makes that concrete — the plugin is real, its
+   * Binding is real, and its messages travel over the same Channel, but the handler
+   * runs in another process.
+   *
+   * The distinction matters in one specific way. Without it, the caller's dispatcher
+   * finds no local handler for the provider and replies `EAPP_CAPABILITY_NOT_EXPOSED`
+   * — immediately, and correctly from its own point of view. That reply then races
+   * the real provider's, and whichever settles first wins. Registering the plugin as
+   * remote tells this runtime to stay quiet about a plugin that is not its to
+   * answer for.
+   */
+  registerRemote(manifest: PluginManifest): PluginRef {
+    this.#assertLive();
+    assertManifest(manifest);
+    assertValidIdentity(manifest.identity);
+    const identity = this.#identities.isIssued(manifest.identity)
+      ? this.#identities.require(manifest.identity)
+      : this.#identities.create({
+          domain: manifest.identity.domain,
+          id: manifest.identity.id,
+          instance: manifest.identity.instance,
+        });
+    this.#registry.register({
+      identity,
+      capabilities: [...manifest.capabilities],
+      lifecycle: 'INACTIVE',
+    });
+    return identity;
+  }
+
+  /** Whether this runtime executes the plugin, as opposed to merely knowing it. */
+  hosts(plugin: PluginRef): boolean {
+    return this.#hosted.has(identityKey(plugin));
   }
 
   async discover(criteria: Criteria = {}, scope: DiscoveryScope = {}): Promise<PluginRef[]> {
@@ -555,6 +610,7 @@ export class EappRuntime {
       mode: 'request',
     });
     const channel = await this.#ensureChannel(binding, 'request');
+    await this.#ensureServer(binding, channel);
     this.#startDispatcher(binding, channel);
 
     const correlationId = newCorrelationId('invoke');
@@ -604,6 +660,66 @@ export class EappRuntime {
     const controller = new AbortController();
     this.#dispatchers.set(channel.id, controller);
     void this.#dispatchLoop(binding, channel, controller.signal);
+  }
+
+  /**
+   * Decide, once per Channel, whether this runtime is the one that answers requests
+   * on it.
+   *
+   * In a single process the answer is "yes, if I host the provider" and nobody has
+   * to ask. On a shared transport it cannot be assumed: two processes that both
+   * serve a Channel both run the handler, and the duplicate reply is discarded by
+   * the correlation tracker — so the caller sees a perfectly good answer while the
+   * side effect happened twice. The role is arbitrated by the transport and held for
+   * the life of the connection.
+   */
+  async #ensureServer(binding: Binding, channel: ManagedChannel): Promise<void> {
+    if (this.#roleClaimed.has(channel.id)) return;
+    this.#roleClaimed.add(channel.id);
+
+    if (!this.#hosted.has(identityKey(binding.from))) return;
+
+    const provider = providesServerRole(this.transport) ? this.transport : undefined;
+    if (!provider) {
+      // A transport with no arbitration has one process on it by construction.
+      this.#serving.add(channel.id);
+      return;
+    }
+    if (await provider.claimServerRole(channel.id)) this.#serving.add(channel.id);
+  }
+
+  /**
+   * Serve requests for a Binding whose provider this runtime hosts.
+   *
+   * `invoke()` starts a dispatcher because in one process the caller and the
+   * provider are the same runtime. When they are not, the provider's process has to
+   * say so, and this is how: it derives the same Channel — a Channel is derived from
+   * a Binding, so both ends have to know the Binding — and takes the server role.
+   *
+   * Fails loudly when another process already serves the Channel, rather than
+   * quietly running the handler a second time.
+   */
+  async serve(request: Omit<ConnectRequest, 'mode'>): Promise<ManagedChannel> {
+    this.#assertLive();
+    if (!this.#hosted.has(identityKey(request.from))) {
+      throw new EappError(
+        'EAPP_PLUGIN_NOT_FOUND',
+        `'${identityKey(request.from)}' is not hosted by this runtime, so it cannot be served here`,
+      );
+    }
+
+    const binding = await this.#ensureBinding({ ...request, mode: 'request' });
+    const channel = await this.#ensureChannel(binding, 'request');
+    await this.#ensureServer(binding, channel);
+
+    if (!this.#serving.has(channel.id)) {
+      throw new EappError(
+        'EAPP_UNSUPPORTED',
+        `channel '${channel.id}' is already served by another connection`,
+      );
+    }
+    this.#startDispatcher(binding, channel);
+    return channel;
   }
 
   /**
@@ -683,6 +799,12 @@ export class EappRuntime {
 
   async #serve(binding: Binding, channel: ManagedChannel, envelope: RequestEnvelope): Promise<void> {
     const callee = binding.from; // v3.0: `from` provides the capability
+
+    // Not this runtime's to answer for. Staying silent is not a courtesy: replying
+    // `EAPP_CAPABILITY_NOT_EXPOSED` here would race the process that actually hosts
+    // the provider, and whichever response arrived first would settle the call.
+    if (!this.#hosted.has(identityKey(callee)) || !this.#serving.has(channel.id)) return;
+
     const module = this.#modules.get(identityKey(callee));
     const handler = module?.handlers?.[envelope.operation];
 
@@ -749,6 +871,19 @@ export class EappRuntime {
     this.#shutDown = true;
     for (const controller of this.#dispatchers.values()) controller.abort();
     this.#dispatchers.clear();
+
+    // Hand the server roles back before the connection goes away, so another
+    // process can take over immediately rather than waiting for this socket to be
+    // observed as closed.
+    const roles = providesServerRole(this.transport) ? this.transport : undefined;
+    if (roles) {
+      for (const channel of this.#serving) {
+        await roles.releaseServerRole(channel).catch(() => undefined);
+      }
+    }
+    this.#serving.clear();
+    this.#roleClaimed.clear();
+
     for (const pending of this.#pending.values()) {
       clearTimeout(pending.timer);
       pending.reject(new EappError('EAPP_INTERNAL', 'runtime shut down'));

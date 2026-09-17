@@ -170,3 +170,39 @@ export function assertTransportSupportsDelivery(
     );
   }
 }
+
+/**
+ * Optional transport extension: exclusive ownership of a Channel's server role.
+ *
+ * Not part of the frozen `Transport` interface. It exists because a transport that
+ * carries messages between processes also breaks an assumption that is invisible
+ * until it does: that the process *calling* `invoke` is the process that would
+ * *serve* it.
+ *
+ * request/response is a request going out and exactly one response coming back
+ * (RQ-1 … RQ-4). If two processes both run a dispatcher on one Channel, both run the
+ * handler and two responses come back — the duplicate is dropped by the correlation
+ * tracker, so the caller sees nothing wrong, but the side effect happened twice.
+ * That is CG-3's problem in a different costume: **"who owns what" has to be decided
+ * where the data is.**
+ *
+ * A transport that can arbitrate declares `sharesServerRole` and implements this.
+ * The role is held for as long as the claiming connection lives, so a server that
+ * dies releases it without anyone needing to notice — the same mechanism that makes
+ * a dropped client release its group claims.
+ */
+export interface ServerRoleProvider {
+  readonly sharesServerRole: boolean;
+  /**
+   * Take the role for `channel`, for the life of this connection.
+   * Resolves `false` when another connection already holds it.
+   */
+  claimServerRole(channel: string): Promise<boolean>;
+  releaseServerRole(channel: string): Promise<void>;
+}
+
+export function providesServerRole(
+  transport: Transport,
+): transport is Transport & ServerRoleProvider {
+  return typeof (transport as Partial<ServerRoleProvider>).claimServerRole === 'function';
+}
