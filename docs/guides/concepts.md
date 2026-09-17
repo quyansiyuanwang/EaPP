@@ -46,8 +46,12 @@ Interaction Layer     Channel / Subscription / ConsumerGroup / Delivery / Lease 
 State Mode            StateCell / Revision / StateUpdate / StateWatcher / CAS
         │
         ▼
-Transport             Memory / Socket / Redis / NATS
+Transport             Memory（本仓库唯一交付的实现）
 ```
+
+Transport 的**接口**是冻结的（v3.1 §10 / v3.2 §11），协议本身与实现无关 ——
+Socket / Redis / NATS 都是**可能的**实现，但本仓库只交付了 Memory 一种
+（`@eapp/transport-memory`），跨进程 Transport 列在[一致性报告](../CONFORMANCE.md) §6 的「尚未实现」里。
 
 **下层 MUST NOT 反向定义上层语义。** Transport 只搬字节，它不定义投递保证、
 不定义 Cursor、不定义 Lease —— 那些是 Interaction Layer 的职责。
@@ -157,7 +161,7 @@ Cursor MUST NOT 随收到消息自动前移。它只随 ack 前移。
 ## 6. State Mode：共享
 
 **它是 Interaction Layer 的第四种 mode，不是新层。**
-四个本体：
+四个核心本体（v3.2 §2），外加 Core 里唯一一种冲突策略 `CAS`（v3.2 §10.5）：
 
 ```
 StateCell      共享的是什么

@@ -29,7 +29,7 @@ State Mode         如何共享状态            ← 最后做这个
 | 类别 | 是否规范 | 例子 |
 |---|---|---|
 | **语义** | 规范 | "Binding 状态 MUST 派生，MUST NOT 被直接设置" |
-| **不变量** | 规范 | 全部 208 条，逐条编号 |
+| **不变量** | 规范 | 全部 209 条，逐条编号 |
 | **错误码** | 规范 | `EAPP_REVISION_CONFLICT` 必须是这个字符串 |
 | **数据形状** | 规范 | `Identity` 正好三个字段 `domain` / `id` / `instance` |
 | **语言类型** | **自由** | TS 里是 `interface`，Go 里可以是 `struct`，Rust 里可以是 `struct` + trait |
@@ -113,14 +113,14 @@ key 存在       → 返回 cell，含 deleted: true 或 false
 `tests/conformance/` 说**怎样算做到了**。
 
 ```bash
-pnpm run check:invariants    # 208 条不变量各自对应哪个测试
+pnpm run check:invariants    # 209 条不变量各自对应哪个测试
 ```
 
 读这四个文件，它们是各层的验收清单：
 
 | 文件 | 覆盖 |
 |---|---|
-| `tests/conformance/core.test.ts` | 50 条（v3.0） |
+| `tests/conformance/core.test.ts` | 51 条（v3.0） |
 | `tests/conformance/interaction.test.ts` | 74 条（v3.1） |
 | `tests/conformance/state.test.ts` | 84 条（v3.2） |
 | `tests/conformance/runtime.test.ts` | 端到端场景 |
@@ -136,7 +136,7 @@ SU-7 / TS-6: CAS is atomic under concurrency
 ### 建议的移植顺序
 
 1. 把四份测试**翻译成你的语言**，先不写实现，只让它们编译通过。
-2. 实现 `@eapp/core` 的五个本体，让 `core.test.ts` 的 50 条全绿。
+2. 实现 `@eapp/core` 的五个本体，让 `core.test.ts` 的 51 条全绿。
 3. 实现一个内存 Transport，让 `interaction.test.ts` 的 74 条全绿。
 4. 实现 State Mode，让 `state.test.ts` 的 84 条全绿。
 
@@ -179,10 +179,14 @@ Go 里用 `*T` 或 `sql.Null` 之类表达；Rust 里用 `Option` 但要注意 `
 
 ```json
 { "eappVersion": "3.2.0",
-  "levels": ["C1", "C2", "C3", "C4", "C5", "C6", "C8", "I1", "I2", "I3", "I4", "I5", "I6", "I7", "S1"],
+  "levels": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "I1", "I2", "I3", "I4", "I5", "I6", "I7"],
   "testSuite": "conformance@3.2.0-r3",
-  "passed": 208, "total": 208 }
+  "passed": 209, "total": 209 }
 ```
+
+`levels` MUST 只列规范定义过的等级：v3.0 §15 定义 `C1`–`C8`，v3.1 §15 定义 `I1`–`I7`。
+v3.2 没有定义独立的等级前缀。规范里不存在的等级 MUST NOT 被声明 ——
+本仓库此前误写过 `"S1"`，它在任何一份规范中都不存在，已删除。
 
 `passed` / `total` 统计的是**不变量覆盖**，不是测试条数 ——
 因为闸门判定的是覆盖。你的实现如果只做了 Composition Core，

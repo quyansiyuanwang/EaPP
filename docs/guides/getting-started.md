@@ -41,23 +41,29 @@ pnpm run verify
 | 段 | 命令 | 这一段在验证什么 |
 |---|---|---|
 | ① 类型 | `pnpm run typecheck` | `tsc -p tsconfig.json --noEmit`。strict + `exactOptionalPropertyTypes`；成功时**没有任何输出** |
-| ② 一致性套件 | `pnpm run test` | `vitest run`。4 个文件、149 条测试，按规范分层组织（core / interaction / state / runtime 端到端） |
-| ③ 冻结闸门 | `pnpm run check:invariants` | v3.0 §19.2 的冻结义务：**每个不变量 MUST 至少有一个对应的测试用例** |
-| ④ 文档链接闸门 | `pnpm run check:docs` | 相对链接是否都能落到真实文件；只查相对链接，不联网 |
+| ② 一致性套件 | `pnpm run test` | `vitest run`。4 个文件，按规范分层组织（core / interaction / state / runtime 端到端） |
+| ③ 示例 | `pnpm run examples` | 三个[示例](../../examples/README.md)真的跑得起来，且各自的自检全部成立 |
+| ④ 冻结闸门 | `pnpm run check:invariants` | v3.0 §19.2 的冻结义务：**每个不变量 MUST 至少有一个对应的测试用例** |
+| ⑤ 文档链接闸门 | `pnpm run check:docs` | 相对链接是否都能落到真实文件；只查相对链接，不联网 |
 
-第 ③ 段不是"覆盖率数字"，而是一组集合判定：它从每份规范末尾的
-「不变量（冻结全集）」小节提取声明的 ID，与对应测试集中**出现的** ID 求差集，
+具体条数以命令输出为准 —— 文档里的数字会过期，闸门不会。
+写这份文档时是 4 个文件 174 条测试、209 条不变量、421 条链接。
+
+第 ④ 段不是"覆盖率数字"，而是一组集合判定：它从每份规范末尾的
+「不变量」小节提取声明的 ID（v3.0 / v3.2 的标题是「不变量（冻结全集）」，
+v3.1 的是「不变量（汇总，冻结全集）」—— 工具匹配任何含"不变量"的小节标题），
+与对应测试集中**出现的** ID 求差集，
 差集非空即失败；它同时拒绝**空测试体**、拒绝**测试文件缺失**，
 并检查"在汇总表里列了、正文却从未陈述"的孤立 ID。
 所以**在规范里写下一个新不变量，等于同时承诺一个测试。**
 
-第 ③ 段的成功输出形如：
+第 ④ 段的成功输出形如：
 
 ```
 v3.0.0-core
   spec      docs/spec/v3.0.0-core.md
   suite     tests/conformance/core.test.ts
-  invariant 50/50 covered
+  invariant 51/51 covered
   gate      PASS
 
 v3.1.0-interaction
@@ -75,10 +81,8 @@ v3.2.0-state
 FREEZE GATE: PASS
 ```
 
-> 第 ④ 段当前**尚未通过**：`docs/guides/implement-in-another-language.md` 还不存在，
-> 而 `docs/README.md` 与 `docs/guides/README.md` 已经链接了它。
-> 这与本页所讲的四段结构无关，但会让 `pnpm run verify` 以非 0 退出。
-> 单独跑第 ④ 段可以看到完整清单：`node tools/check-docs.mjs`。
+第 ⑤ 段扫描 `docs/` 与 `examples/` 两棵树下的全部 Markdown。
+放在闸门扫描范围之外的文档，等于链接没人检查的文档。
 
 ---
 
@@ -114,8 +118,9 @@ pnpm run demo
 `lifecycle` 全是 `INACTIVE` —— 注册只让插件**可被发现**，它还没有进入任何组合。
 
 `runtime.discover({ capability: 'logging' })` 走的是
-[`Discovery`](../reference/discovery.md)；命中的是 `name === 'logging'` 的插件，
-版本匹配是**精确匹配**（`Criteria.version` 为 `'*'` 时才表示任意版本）。
+[`Discovery`](../reference/discovery.md)；命中的是 `name === 'logging'` 的插件。
+`version` 是 **SemVer range**（§8.1）：写 `'1.0.0'` 就是那一个版本，写 `'^1.0.0'`、
+`'>=2'` 或 `'*'` 才是范围；语法不认识的范围会被**明确拒绝**，不会静默不匹配。
 最后一行 `bindings = 0` 是 D-3：**发现得到的是"可以被组合"，不是"已经可以调用"。**
 
 ```
@@ -134,7 +139,7 @@ pnpm run demo
 3. Connect — 连接
 ───────────────
   binding   binding-1
-  channel   ch-1  mode=request  delivery=at-most-once  (channel state = ACTIVE)
+  channel   ch-1  mode=request  delivery=at-most-once
   binding state = ACTIVE  (derived, never assigned)
 ```
 
@@ -241,7 +246,10 @@ and sharing versioned state — each one unaware of the others.
 ```
 
 `runtime.shutdown()` 关闭所有 Channel、中止 dispatcher、清空未决调用并把 Transport
-`close()`。之后任何操作都会以 `EAPP_INTERNAL` 失败。
+`close()`。之后**会改变运行时状态的**操作都以 `EAPP_INTERNAL` 失败
+（`register` / `discover` / `connect` / `invoke` / `publish` / 生命周期操作）。
+纯查询不在此列：`describe()` 仍然返回关闭前的快照，`channel()` 仍然能查到 Channel 对象 ——
+它们读的是既有数据，不推进任何东西。
 
 ---
 

@@ -10,7 +10,12 @@
 | **测试** | [`tests/conformance/core.test.ts`](../../tests/conformance/core.test.ts) |
 | **稳定度** | FROZEN |
 
-> **规范与实现存在一处未登记的冲突。** §8.1 把 `Criteria.version` 注释为 `// SemVer range`，而参考实现只做**精确匹配**，并把 `'*'` 当作「任意版本」（`packages/core/src/discovery.ts` 的 `matchesCriteria`；`packages/core/src/capability.ts` 亦声明 “Range matching is deliberately out of scope for the Composition Core”）。`docs/CONFORMANCE.md` §5 的偏离表没有登记这一条。本页以规范为准：`version` 是 SemVer range；当前实现只支持精确值与 `'*'`。
+> **这里曾经有一处未登记的冲突，已经关掉。** §8.1 把 `Criteria.version` 注释为
+> `// SemVer range`，而早期实现只做精确匹配 —— 于是 `find({ version: '^1.0.0' })`
+> **静默返回空集**，与"确实没有插件匹配"无法区分。
+> 实现已按规范补上 range 匹配（[`packages/core/src/semver.ts`](../../packages/core/src/semver.ts)），
+> 记录见 [`CHANGELOG.md` §勘误 E-E](../spec/CHANGELOG.md) 与
+> [`CONFORMANCE.md` §7](../CONFORMANCE.md)。**现在规范与实现一致，本页不再需要偏离声明。**
 
 ---
 

@@ -63,18 +63,25 @@ interface PluginModule {
 
 ## 2. 完整示例：两个互不相识的插件
 
-下面的例子与演示（`examples/hello-plugins/`）里 logger / app / metrics 三件套**不同**：
-它是 `casing`（纯提供方）与 `greeter`（提供方同时又是消费方）。
-把它存成 `examples/my-first-plugin/index.ts` —— 这个位置是必需的，
-示例里的 `../../packages/...` 相对导入就是按这个深度写的 —— 然后：
+示例就在仓库里，**可以直接跑**：
 
 ```bash
-npx tsx examples/my-first-plugin/index.ts
+pnpm run example:first
+# 等价于 npx tsx examples/my-first-plugin/index.ts
 ```
 
-（仓库根目录没有链接 `@eapp/*` 的 `node_modules` 入口，所以 `tsx` 下要用相对路径导入；
-`@eapp/...` 包名形式只在 `tsc` 与 `vitest` 中经由 `paths` / alias 可解析，
-`tests/conformance/*.test.ts` 就是这么写的。）
+它与演示（[`examples/hello-plugins/`](../../examples/hello-plugins/index.ts)）里
+logger / app / metrics 三件套**不同**：这里是 `casing`（纯提供方）与 `greeter`
+（提供方同时又是消费方）。
+
+完整文件在 [`examples/my-first-plugin/index.ts`](../../examples/my-first-plugin/index.ts)，
+除了下面这两段，它还在结尾核对本文的每一条断言，并把 §7 的错误表逐行跑出来。
+下面摘的是核心部分。
+
+> 示例用相对路径导入（`../../packages/...`），这个位置是必需的 —— 相对深度就是按
+> `examples/<name>/index.ts` 写的。仓库根目录没有链接 `@eapp/*` 的 `node_modules`
+> 入口，所以 `tsx` 下只能用相对路径；`@eapp/...` 包名形式只在 `tsc` 与 `vitest` 中
+> 经由 `paths` / alias 可解析，`tests/conformance/*.test.ts` 就是这么写的。
 
 ```typescript
 import { EappError } from '../../packages/core/src/index.js';
@@ -202,7 +209,8 @@ main().catch((error: unknown) => {
 });
 ```
 
-实测输出（`binding-1` / `ch-1` 这类 id 按创建顺序递增）：
+实测输出（`binding-1` / `ch-1` 这类 id 按创建顺序递增，`correlationId` 末尾是时间戳，
+所以字面值会变；这里引用的是 `pnpm run example:first` 的真实输出）：
 
 ```
 发现: greeter
@@ -210,8 +218,8 @@ binding = binding-1 状态 = DORMANT
 channel = ch-1 request at-most-once ACTIVE
   [greeter] activate()
 激活后 binding 状态 = ACTIVE
-reply: {"line":"Hello, Ada!","total":1,"correlationId":"invoke-2-…"}
-handler 内部再调用: {"line":"HELLO, GRACE!","total":2,"correlationId":"invoke-4-…"}
+reply: {"line":"Hello, Ada!","total":1,"correlationId":"invoke-1-…"}
+handler 内部再调用: {"line":"HELLO, GRACE!","total":2,"correlationId":"invoke-2-…"}
 ```
 
 注意三件事：`casing` 从来没有被"通知"过 `greeter` 的存在；`greeter` 也从来不知道
@@ -244,9 +252,11 @@ const identity = this.#identities.isIssued(module.manifest.identity)
 
 - 插件 **MUST NOT** 自己"造"一个身份然后声称它是自己的。`register()` 返回的才是权威身份，
   用它去做后续的 `connect` / `invoke` / `activate`。
-- 运行时**只**取 `domain` / `id` / `instance` 三个字段：manifest 里多写的字段会被**丢弃**，
-  不会报错，也不会进入身份。ID-6（身份不含版本语义）因此在实现层面无法被绕过 ——
-  但也不给出提示，写错了只能靠 `register()` 的返回值自检。
+- `register()` **校验**身份，不是**净化**身份。身份的形状恰好是
+  `domain` / `id` / `instance` 三个字段，多写一个（比如 `version`）会直接抛
+  `EAPP_IDENTITY_INVALID`，而不是被悄悄丢掉。
+  早期版本是丢弃字段的 —— 那让 ID-6（身份不含版本）在最关键的一条路径上静默失效：
+  写错了不报错，只是你以为的那个身份根本没生效。
 - 同一 `(domain, id, instance)` 注册两次会被拒绝：`EAPP_IDENTITY_DUPLICATE`（ID-3 / P-1）。
 
 **② Capability 的 SemVer 是真的 SemVer。** `version` 必须是 `major.minor.patch`
@@ -288,10 +298,26 @@ type RequestHandler = (payload: unknown, context: InvocationContext) => Promise<
 同一个 Channel 上并发的多个请求靠它各自配对，`handler` 可以把它回传给调用方用于追踪。
 
 **一个 handler 里可以再发起调用。** 示例里的 `greeter` 就在自己的 handler 里
-`invoke` 了 `casing`。此时它自己是 `from`，`casing` 是 `to`。
-注意 `invoke()` 的 `from` **必须**是能力提供方那一侧 —— 运行时按
-`(from, to, capability.name, capability.version)` 建立并复用 Binding，
-顺序写反会以 `EAPP_CAPABILITY_NOT_EXPOSED` 失败。
+`invoke` 了 `casing`。此时 `greeter` 是 `from`（**发起调用的一方**），`casing` 是 `to`
+（**能力提供方**）。
+
+> ### `invoke()` 的 `from` / `to` 与 `connect()` 是**反的**
+>
+> ```
+> connect({ from, to })     from = 能力提供方      to = 消费方      ← v3.0 Binding 的方向
+> invoke ({ from, to })     from = 调用方（消费方）  to = 能力提供方  ← "我要调用谁"
+> publish({ from, to })     from = 能力提供方      to = 消费方      ← 同 connect
+> ```
+>
+> 这不是笔误，是两个不同的概念用了同一对字段名，读起来很容易反过来。
+> `connect()` 描述的是**关系**：v3.0 的 `bind()` 把 `from` 定义为能力提供方。
+> `invoke()` 描述的是**动作**：谁在发起这次调用。
+>
+> 运行时内部按 `(from = request.to, to = request.from)` 建立并复用 Binding ——
+> 也就是说 `invoke({ from: A, to: B })` 要求 **B** 提供这个能力。
+> 写反会以 `EAPP_CAPABILITY_NOT_EXPOSED` 失败，因为那等于要求消费方去提供它。
+>
+> `examples/my-first-plugin/` 里把这条实测出来了。
 
 ---
 
@@ -310,16 +336,22 @@ SUSPENDED --resume-->     ACTIVE       → resume()
 
 ```typescript
 async activate(plugin: PluginRef): Promise<void> {
-  await this.core.activate(plugin);
+  this.#assertLive();
+  // 只有核心真的发生了状态转移，才调用插件的钩子。
+  if (!(await this.#changeLifecycle(plugin, () => this.core.activate(plugin)))) return;
   await this.#modules.get(identityKey(plugin))?.activate?.();
 }
 ```
 
-两条 MUST 级注意点：
+注意那个守卫。核心状态机的 `activate` 对已 `ACTIVE` 的插件是 no-op（O-5），
+而"no-op"在这里意味着**钩子不会被调用**：
 
-- **钩子必须自己保证幂等性。** 核心状态机的 `activate` 对已 `ACTIVE` 的插件是 no-op（O-5），
-  但运行时**仍然会调用 `activate()` 钩子**。所以重复 `runtime.activate(p)` 会让钩子被调用多次 ——
-  不要在里面做"只允许发生一次"的初始化，或者自己加守卫。`deactivate()` 在契约里被明确要求幂等。
+- **重复 `runtime.activate(p)` 不会让 `activate()` 被调用两次。** 早期版本会 ——
+  那迫使每个插件都去防御一次 O-5 已经排除的重复激活。现在由运行时负责。
+- **但钩子仍然应当自己幂等。** `deactivate()` 在契约里被明确要求幂等；
+  而且 `INACTIVE → ACTIVE → INACTIVE → ACTIVE` 是合法的正常序列，
+  钩子会各被调用一次。真正的"只允许发生一次"初始化要自己加标记，别指望状态机帮忙。
+
 - **`activate()` 不是 `INACTIVE → SUSPENDED` 的通路。** 对 `SUSPENDED` 的插件调
   `activate()` 会让核心抛 `EAPP_LIFECYCLE_INVALID`（L-6）：先用 `resume()`。
 
@@ -344,12 +376,14 @@ async activate(plugin: PluginRef): Promise<void> {
 `register()` 之后插件的生命周期是 `INACTIVE`，`runtime.core.listBindings()` 里什么都没有。
 发现（D-3）只是必要条件。
 
-`criteria` 的可用字段：`capability`（名字）、`version`（SemVer 精确匹配，`'*'` 表示任意版本）、
-`constraints`、`identity`（`domain` / `id` / `instance` 的部分匹配）。
+`criteria` 的可用字段：`capability`（名字）、`version`（SemVer **range** ——
+`'1.0.0'` 精确到那一个版本，`'^1.0.0'` / `'>=2'` / `'*'` 是范围；语法不认识的范围会被
+**明确拒绝**，不会静默不匹配）、`constraints`、`identity`（`domain` / `id` / `instance` 的部分匹配）。
 `scope` 是 `{ trustLevel?, trustDomain? }`；当前实现只在有对应信任策略时才接受它，
 否则抛 `EAPP_DISCOVERY_SCOPE_INVALID` —— 一个无法评估的 scope **不会被静默忽略**。
 
 **连接方向是有含义的：`from` 是能力提供方，`to` 是消费方。**
+（`invoke()` 的 `from` / `to` 是**反的** —— 见 §4 的说明框。）
 `connect()` 会：
 
 1. 复用 `(from, to, capability)` 上尚未 `CLOSED` 的
@@ -385,11 +419,13 @@ dispatcher 读回来交给 handler —— 这样才真正跑过了三层。它�
 ## 7. 错误如何浮现
 
 三层共用一个运行时错误类 `EappError`（`class EappError extends Error`）。
-它**只定义在 `@eapp/core`**，`@eapp/runtime` 并不再导出它：
+它**定义在 `@eapp/core`**，而 `@eapp/runtime` 会**再导出**它 ——
+所以插件作者只需要一个 import：
 
 ```typescript
-// 插件里这样拿到它（相对路径与示例一致；见 §2 的导入说明）
-import { EappError } from '../../packages/core/src/index.js';
+// 两行等价；§2 的示例用第一行（相对路径的说明见 §2）
+import { EappError, EappRuntime, type PluginModule } from '../../packages/runtime/src/index.js';
+// import { EappError } from '../../packages/core/src/index.js';
 
 class EappError extends Error {
   readonly code: string;
@@ -413,12 +449,25 @@ handler 抛出的错误会在响应信封里变成一个**码**，调用方看�
 | 目标没注册 | `EAPP_PLUGIN_NOT_FOUND` |
 | 请求到达时 deadline 已过 | `EAPP_TIMEOUT`，且**工作根本不会开始**（RQ-4） |
 
-实测（用示例里的 greeter）：
+实测（`pnpm run example:first` 的后半段，示例会自己核对每一条）：
 
 ```
-handler EappError -> EAPP_GREETING_INVALID_NAME retryable=false
-timeout（handler 睡 40ms、timeoutMs 5） -> EAPP_TIMEOUT retryable=false
+错误如何浮现
+  payload.name = ""            -> EAPP_GREETING_INVALID_NAME retryable=false
+  handler 睡 40ms, timeoutMs 5 -> EAPP_TIMEOUT retryable=false
+  invoke 的 from/to 写反       -> EAPP_CAPABILITY_NOT_EXPOSED
+  声明了能力但没有 handler     -> EAPP_CAPABILITY_NOT_EXPOSED
+  目标插件没注册               -> EAPP_PLUGIN_NOT_FOUND
+  同一身份注册两次             -> EAPP_IDENTITY_DUPLICATE
 ```
+
+要让 `EAPP_TIMEOUT` 真的出现，示例里的 `greeter` 多接受一个可选的 `delayMs`
+（§2 的摘录里省略了它）：handler 的耗时必须明确大于 `timeoutMs`，否则只是普通的时序竞态。
+示例用的是 handler 睡 40ms、`timeoutMs: 5`。
+
+「声明了能力但没有 handler」和「目标插件没注册」看起来是同一个失败，其实不是：
+前者 Binding 建得起来（`from` 确实暴露了该能力），只是服务不了；
+后者连 Binding 都建不起来。
 
 两条实践建议：
 
@@ -439,13 +488,13 @@ timeout（handler 睡 40ms、timeoutMs 5） -> EAPP_TIMEOUT retryable=false
 
 | 禁止 | 为什么 |
 |---|---|
-| 自己签发 [`Identity`](../reference/identity.md) | v3.0 ID-5：`Identity MUST NOT be self-issued`。身份由 `IdentityRegistry` 铸造；运行时会忽略你带进来的额外字段，也不会信任"我宣布我是谁" |
+| 自己签发 [`Identity`](../reference/identity.md) | v3.0 ID-5：`Identity MUST NOT be self-issued`。身份由 `IdentityRegistry` 铸造。运行时**校验**你带进来的身份，多出的字段会被拒绝（`EAPP_IDENTITY_INVALID`），不会"相信你宣布自己是谁" |
 | 把版本塞进 Identity | ID-6：身份形状恰好是 `domain` / `id` / `instance`。版本属于 `Capability.version`，塞进身份会让"升级"变成"换了一个人" |
 | 直接依赖另一个插件的模块 | 那就不是组合，是编译期耦合。跨插件只能通过运行时：发现、连接、调用 |
 | 假设发现等于可调用 | D-3 / D-5：发现不是组合，也不替代 Binding |
 | 把 Binding 状态"设"成某个值 | 它由三件事派生。想让它变成 `ACTIVE`，去让两端 `ACTIVE` 且 `from` 仍暴露该能力 |
 | 在 handler 里假设 `payload` 的形状 | `payload` 是 `unknown`；Core 不做 schema 校验 |
-| 假设同一条 Channel 只有一个消费者 | 那是 v3.0 之外的编排问题；排他性由 [`ConsumerGroup`](../reference/consumer-group.md) + [`Lease`](../reference/lease.md) 表达，不在插件内部发明 |
+| 假设同一条 Channel 只有一个消费者 | 排他性由 [`ConsumerGroup`](../reference/consumer-group.md) + [`Lease`](../reference/lease.md) 表达，不在插件内部发明 —— 用 `runtime.openConsumerGroup()`，见 §8.1 |
 | 依赖 `onEvent` 之类的声明式钩子 | **没有这个字段**，见下 |
 
 **没有 `onEvent` 钩子，这是有意的。** 早期版本声明过一个，
@@ -470,17 +519,66 @@ for await (const message of subscription) {
 
 ---
 
+## 8.1 一条 Channel，多个消费者：`ConsumerGroup`
+
+`subscribe()` 回答"**谁在**参与"。如果一个问题变成"**谁和谁在竞争**" ——
+一个工作池里有多个成员、每条消息只能被处理一次 ——
+那是另一个实体：[`ConsumerGroup`](../reference/consumer-group.md)（v3.1 §8）。
+
+```
+组之间   每个组都收到全部消息，各自持有独立 Cursor      （CG-4）
+组之内   每条消息只交给一个成员 —— 成员之间竞争         （CG-3）
+```
+
+运行时给出的操作面：
+
+```typescript
+// 先在 Channel 上开一个组（CG-1：组名在同一 Channel 内唯一）
+await runtime.openConsumerGroup(channel.id, { name: 'workers' });
+
+// 成员加入（CG-8：必须指名一个已存在的组）
+const member = await runtime.joinConsumerGroup(channel.id, 'workers');
+
+for await (const message of member) {
+  await work(message.payload);
+  await message.ack();     // ack 推进的是**组**的 cursor（CG-1 / CG-2）
+}
+```
+
+`member.cursor` 是**组**的位置，成员没有自己的 —— 一个组在任何时刻恰好有一个位置。
+成员 `nack()` 或**离开**时，它持有的位置立刻归还给组（CG-6 / CG-5），
+所以一个成员崩在岗位上不会让整组空转。
+
+三条容易踩的：
+
+- **`openConsumerGroup` 与 `joinConsumerGroup` 是两步，不能合并。** 组必须先在
+  Channel 上存在；直接 join 一个不存在的组会以 `EAPP_SUBSCRIPTION_INVALID` 失败。
+- **组不是调度器。** CG-3 只保证同一条消息不会同时被同组的两个成员持有，
+  **不保证分配均匀** —— 一次 `pull` 可以领走一整批，一个成员可能把当前可见的工作
+  整批揽下。要均匀，得让成员自己限制领多少。
+- **排他性不等于不重复。** 成员崩溃后工作会被重新投递（这就是 `at-least-once`），
+  所以同一个 job 可能被执行两次。去重是应用的事（幂等键、去重表），不是协议的事。
+
+完整的、可运行的例子见 [`examples/job-queue/`](../../examples/job-queue/index.ts)：
+竞争消费、nack 重投、成员死在岗位上、三个组共存于一条 Channel。
+
+---
+
 ## 9. 一页速查
 
 ```
-注册   runtime.register(module)                  → PluginRef        （权威身份）
-发现   runtime.discover({ capability: '...' })    → PluginRef[]
-连接   runtime.connect({ from, to, capability, mode })
+注册   runtime.register(module)                       → PluginRef      （权威身份）
+发现   runtime.discover({ capability: '...' })         → PluginRef[]
+连接   runtime.connect({ from, to, capability, mode })   from = 提供方
 激活   runtime.activate(ref) / suspend / resume / deactivate
 调用   runtime.invoke({ from, to, capability, payload, timeoutMs })
+                                                       from = 调用方（与 connect 反）
+消费   runtime.subscribe(channelId, pattern, options)  → Subscription
+竞争   runtime.openConsumerGroup(channelId, { name })  → ConsumerGroup
+       runtime.joinConsumerGroup(channelId, name)      → Subscription（组的位置）
 
-from = 能力提供方      to = 消费方
 Binding 状态 = 派生     handler 抛 EappError → 调用方看到同一个 code
+组 = 谁和谁竞争        成员没有自己的 cursor
 ```
 
 ---

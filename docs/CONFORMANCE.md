@@ -13,12 +13,16 @@
 ```json
 {
   "eappVersion": "3.2.0",
-  "levels": ["C1", "C2", "C3", "C4", "C5", "C6", "C8", "I1", "I2", "I3", "I4", "I5", "I6", "I7", "S1"],
+  "levels": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "I1", "I2", "I3", "I4", "I5", "I6", "I7"],
   "testSuite": "conformance@3.2.0-r3",
   "passed": 209,
   "total": 209
 }
 ```
+
+`levels` 只列规范定义过的等级：v3.0 §15 定义 `C1`–`C8`，v3.1 §15 定义 `I1`–`I7`。
+v3.2 没有定义独立的等级前缀（它的 §14 是不变量分组，不是等级）。本轮更正了两处：
+删除了此前误写的 `"S1"` —— 这个字符串在任何一份规范中都不存在；并按 §3 的等级表补入 `"C7"`。
 
 `passed` / `total` 统计的是**不变量覆盖**，不是测试条数 —— 因为冻结闸门判定的是覆盖，而不是覆盖率数字。
 
@@ -35,20 +39,26 @@
 
 ```bash
 pnpm install
-pnpm run verify      # typecheck + 141 tests + 冻结闸门
+pnpm run verify      # typecheck + 174 tests + examples + 冻结闸门 + 链接闸门
 pnpm run demo        # 端到端演示：三个互不相识的插件
 ```
 
-`pnpm run verify` 的第三段是冻结闸门（`tools/check-invariants.mjs`），它执行
+`pnpm run verify` 共五段（typecheck / test / examples / check:invariants / check:docs），
+第四段是冻结闸门（`tools/check-invariants.mjs`），它执行
 v3.0 §19.2 的冻结义务——**每个不变量 MUST 至少有一个对应的测试用例**。
 它从每份规范的「不变量（冻结全集）」小节提取声明，与对应测试集中出现的 ID 做集合差，
 差集非空即失败；同时拒绝空测试体。
 
 ```
-v3.0.0-core          invariant 50/50 covered   gate PASS
+v3.0.0-core          invariant 51/51 covered   gate PASS
 v3.1.0-interaction   invariant 74/74 covered   gate PASS
 v3.2.0-state         invariant 84/84 covered   gate PASS
+    note             named but not declared: SUB-5, SUB-6, SUB-7, SUB-8, SUB-9
 ```
+
+v3.2 的 `note` 行不是失败：它列出测试集命名、但该层规范未声明的 ID ——
+这里是 v3.1 §7 的 `SUB-5`…`SUB-9`（`state.test.ts` 用它们检验 StateWatcher 的
+Subscription 合规，对应 `SW-1`）。
 
 ---
 
@@ -67,7 +77,7 @@ v3.2.0-state         invariant 84/84 covered   gate PASS
 | C7 Constraints | `Constraint` 精确匹配（C-7） | ✅ MAY |
 | C8 Bootstrap | 最小 Bootstrap Runtime | ✅ MAY |
 
-### v3.1.0-interaction（§14）
+### v3.1.0-interaction（§15）
 
 | 等级 | 要求 | 状态 |
 |---|---|---|
@@ -123,7 +133,7 @@ v3.2.0-state         invariant 84/84 covered   gate PASS
 
 ### 已经关掉的缺口
 
-下面六项曾列在本节，现已实现并有回归测试。
+下面七项曾列在本节，现已实现并有回归测试。
 
 | 项 | 关闭方式 |
 |---|---|
@@ -159,13 +169,19 @@ v3.2.0-state         invariant 84/84 covered   gate PASS
 ### 由编写参考文档发现
 
 编写 `docs/reference/` 时，每页都要求"这条规则写在哪份规范、对应哪个测试"，
-于是**文档变成了规范自洽性的测试**。见 `docs/spec/CHANGELOG.md` 的 E-A … E-G。
+于是**文档变成了规范自洽性的测试**。见 `docs/spec/CHANGELOG.md` 的 E-A … E-J。
+
+> 最后一轮又补出两条。**E-I**（`Constraint` 匹配语义从未定义）与 **E-J** 是同一类问题的
+> 不同形态：后者由写 [`implement-in-another-language.md`](./guides/implement-in-another-language.md)
+> 逼出 —— 那一页要求给出一个真实的 `ConformanceClaim` 样例，而"真实"意味着它必须
+> 真的成立于当前版本；一比之下发现 v3.0 §19.3 冻结的接口把 `eappVersion` 钉成 `'3.0.0'`、
+> 把 `levels` 限定为 `C1`–`C8`，**v3.1 / v3.2 的实现做不出合法声明**。
 
 | # | 缺陷 | 后果 |
 |---|---|---|
-| 10 | v3.1 **丢失了 Channel↔Binding 状态同步表**，`CC-1` / `CC-2` 只在汇总里出现 | 两条不变量**在正文中从未被陈述** |
-| 11 | v3.2 有 **10 条同类**（`SU-4`、`CF-1`…`CF-5`、`IX-1`…`IX-4`） | 同上；v3.2 甚至没有 ConflictPolicy 一节 |
-| 12 | v3.0 §8.1 声明 `Criteria.version` 是 SemVer **range**，实现却做精确匹配 | `find({version:'^1.0.0'})` **静默返回空集**，与"没有插件匹配"无法区分 |
+| 10 | v3.1 **丢失了 Channel↔Binding 状态同步表**，`CC-1` / `CC-2` 只在汇总里出现。**已修复（r3，见 `docs/spec/CHANGELOG.md` E-A）**：恢复为 v3.1 §2.4，并在 §12 的规则块中给 `CC-1` / `CC-2` 加上指引 | 当时两条不变量**在正文中从未被陈述** |
+| 11 | v3.2 有 **10 条同类**（`SU-4`、`CF-1`…`CF-5`、`IX-1`…`IX-4`、`IX-6`）。**已修复（r3，见 `docs/spec/CHANGELOG.md` E-G）**：补 §5.4 的 `SU-4`，新增 §10.5「冲突策略」（`CF-1`…`CF-5`）与 §15.1「层级隔离」（`IX-1`…`IX-4`、`IX-6`；`IX-5` 已随 R-1 删除） | 同上；当时 v3.2 甚至没有 ConflictPolicy 一节 |
+| 12 | v3.0 §8.1 声明 `Criteria.version` 是 SemVer **range**，实现却做精确匹配。**已修复（r3，见 `docs/spec/CHANGELOG.md` E-E）**：`matchesCriteria` 改用 `packages/core/src/semver.ts` 的 range 匹配，不支持的语法由 `isValidRange` 明确拒绝；回归测试在 `core.test.ts` 的 §8.1 一节 | 当时 `find({version:'^1.0.0'})` **静默返回空集**，与"没有插件匹配"无法区分 |
 
 ### 由运行示例发现
 
@@ -173,11 +189,11 @@ v3.2.0-state         invariant 84/84 covered   gate PASS
 
 | # | 缺陷 | 后果 |
 |---|---|---|
-| 13 | `PluginModule.onEvent` 声明了但**从不被调用** | 看起来支持的扩展点接受 handler 后静默丢弃，插件作者写下一段永不执行的代码 |
-| 14 | `EappRuntimeOptions.transport` 的类型是具体类 `MemoryTransport` | 自定义 Transport **无法在不强转的情况下传入**，等于废掉了 Transport 边界 |
-| 15 | `EappError` 未从 `@eapp/runtime` 再导出 | 插件作者必须越过运行时去 import `@eapp/core` |
-| 16 | 生命周期钩子在核心已判定为 no-op 时仍被调用 | 每个插件都被迫自己防御一次 O-5 已经排除的重复激活 |
-| 17 | `register()` **净化**而非**校验** identity | 带 `version` 字段的身份被静默剥掉该字段，而 ID-6 要求拒绝 |
+| 13 | `PluginModule.onEvent` 声明了但**从不被调用**。**已修复（r3）**：该扩展点已删除，`PluginModule` 不再声明 `onEvent`（`packages/runtime/src/plugin.ts`），事件与流消费走 `runtime.subscribe()`；回归测试 `runtime.test.ts` › `'the plugin contract has no onEvent hook'` | 当时它看起来是受支持的扩展点，接受 handler 后静默丢弃 |
+| 14 | `EappRuntimeOptions.transport` 的类型是具体类 `MemoryTransport`。**已修复（r3）**：类型改为 v3.1 / v3.2 的接口 `StateTransport`（`packages/runtime/src/runtime.ts`）；回归测试 `runtime.test.ts` › `'the runtime accepts any StateTransport, not just the reference implementation'` | 当时自定义 Transport **无法在不强转的情况下传入**，等于废掉了 Transport 边界 |
+| 15 | `EappError` 未从 `@eapp/runtime` 再导出。**已修复（r3）**：`packages/runtime/src/index.ts` 再导出 `EappError` / `isEappError`；回归测试 `runtime.test.ts` › `'the runtime re-exports the protocol error so a plugin needs one import'` | 当时插件作者必须越过运行时去 import `@eapp/core` |
+| 16 | 生命周期钩子在核心已判定为 no-op 时仍被调用。**已修复（r3）**：`activate` / `deactivate` / `suspend` / `resume` 只在核心真的发生了状态转移时才调用插件钩子（`packages/runtime/src/runtime.ts`）；回归测试 `runtime.test.ts` › `'a lifecycle hook fires only when the state actually changes'` | 当时每个插件都被迫自己防御一次 O-5 已经排除的重复激活 |
+| 17 | `register()` **净化**而非**校验** identity。**已修复（r3）**：`register()` 经 `assertValidIdentity` 校验，超出 `domain` / `id` / `instance` 的字段（如 `version`）抛 `EAPP_IDENTITY_INVALID`（`packages/core/src/identity.ts`）；回归测试 `runtime.test.ts` › `'register rejects an identity carrying fields beyond domain/id/instance'` | 当时带 `version` 字段的身份被静默剥掉该字段，而 ID-6 要求拒绝 |
 
 > 第 10 / 11 条最重要，因为它们暴露了闸门的盲区：
 > 原 `check-invariants` 只问"这个 ID 有没有测试"，不问"这个 ID 有没有在正文里被定义"。

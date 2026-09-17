@@ -28,7 +28,11 @@ export interface DiscoveryScope {
 
 export interface Criteria {
   capability?: string;
-  /** SemVer. The Composition Core matches it exactly; `'*'` means "any version". */
+  /**
+   * A SemVer RANGE, not an exact value — §8.1 declares it as one, and reading it as exact
+   * made `find({ version: '^1.0.0' })` silently return nothing. A bare version still means
+   * that version exactly; `'*'` means any. See `semver.ts` for the supported grammar.
+   */
   version?: string;
   constraints?: Constraint[];
   identity?: Partial<Identity>;
