@@ -44,7 +44,7 @@ Transport                   消息物理上怎么走     Memory · Socket · Red
 | v3.2.0-state | ✅ FROZEN | ✅ |
 
 ```
-不变量覆盖   208 / 208     冻结闸门 PASS
+不变量覆盖   209 / 209     冻结闸门 PASS
 测试         149 passed    typecheck clean    doc links resolve
 标签         v3.2.0
 ```

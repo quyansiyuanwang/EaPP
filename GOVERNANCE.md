@@ -184,7 +184,7 @@ docs/spec/v3.2.0-state.md          规则是什么
 
 ```json
 { "eappVersion": "3.2.0", "levels": ["C1", "…", "I6", "S1"],
-  "testSuite": "conformance@3.2.0-r3", "passed": 208, "total": 208 }
+  "testSuite": "conformance@3.2.0-r3", "passed": 209, "total": 209 }
 ```
 
 第三方实现的合规等级由它自己声明 —— 本协议不设认证机构，

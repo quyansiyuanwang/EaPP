@@ -15,8 +15,8 @@
   "eappVersion": "3.2.0",
   "levels": ["C1", "C2", "C3", "C4", "C5", "C6", "C8", "I1", "I2", "I3", "I4", "I5", "I6", "I7", "S1"],
   "testSuite": "conformance@3.2.0-r3",
-  "passed": 208,
-  "total": 208
+  "passed": 209,
+  "total": 209
 }
 ```
 
@@ -24,10 +24,10 @@
 
 | 层 | 不变量 | 覆盖 | 测试文件 |
 |---|---|---|---|
-| v3.0.0-core | 50 | **50 / 50** | `tests/conformance/core.test.ts` |
+| v3.0.0-core | 51 | **51 / 51** | `tests/conformance/core.test.ts` |
 | v3.1.0-interaction | 74 | **74 / 74** | `tests/conformance/interaction.test.ts` |
 | v3.2.0-state | 84 | **84 / 84** | `tests/conformance/state.test.ts` |
-| 合计 | **208** | **208 / 208** | 另加 `runtime.test.ts` 的端到端场景 |
+| 合计 | **209** | **209 / 209** | 另加 `runtime.test.ts` 的端到端场景 |
 
 ---
 
@@ -64,7 +64,7 @@ v3.2.0-state         invariant 84/84 covered   gate PASS
 | C4 Trust Scope | `DiscoveryScope` 支持 trustLevel / trustDomain | ✅ SHOULD |
 | C5 Discovery Events | added / removed / changed | ✅ SHOULD |
 | C6 Atomic Bind | 唯一性检查与创建原子 | ✅ SHOULD |
-| C7 Constraints | `Capability.constraints` 匹配语义 | ⬜ MAY，**未声明**（类型已具备，匹配语义未实现） |
+| C7 Constraints | `Constraint` 精确匹配（C-7） | ✅ MAY |
 | C8 Bootstrap | 最小 Bootstrap Runtime | ✅ MAY |
 
 ### v3.1.0-interaction（§14）
@@ -117,7 +117,6 @@ v3.2.0-state         invariant 84/84 covered   gate PASS
 
 | 项 | 说明 |
 |---|---|
-| C7 Constraints | `Constraint` 类型存在，但 `constraints` 的匹配语义未实现 |
 | 跨进程 Transport | 只实现 Memory（`durabilityBoundary: 'process'`）。Socket / Redis / NATS 未实现 |
 | CRDT | v3.2 §12.4 已裁定其 `supportsStateRevision = false`，属于 Extension |
 | Trust Domain 权限 | v3.0 §8.2 只冻结了 trust level 的分类语义，未冻结授权 |

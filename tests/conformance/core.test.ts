@@ -175,6 +175,46 @@ describe('C: Capability', () => {
     );
   });
 
+  test('C-7: Constraint matching is exact kind plus structural value equality', async () => {
+    const registry = new PluginRegistry();
+    const plugin = pluginOf('constrained', [
+      {
+        name: 'logging',
+        version: '1.0.0',
+        constraints: [
+          { kind: 'region', value: { zone: 'eu', tier: 1 } },
+          { kind: 'tags', value: ['fast', 'cheap'] },
+        ],
+      },
+    ]);
+    registry.register(plugin);
+    const core = createCompositionCore(registry);
+    const find = (constraints: { kind: string; value: unknown }[]) =>
+      core.find({ capability: 'logging', constraints }, {});
+
+    // Equal kind and a structurally equal value match.
+    expect(await find([{ kind: 'region', value: { tier: 1, zone: 'eu' } }])).toHaveLength(1);
+    expect(await find([{ kind: 'tags', value: ['fast', 'cheap'] }])).toHaveLength(1);
+
+    // Any difference in kind or value does not.
+    expect(await find([{ kind: 'zone', value: { zone: 'eu', tier: 1 } }])).toHaveLength(0);
+    expect(await find([{ kind: 'region', value: { zone: 'us', tier: 1 } }])).toHaveLength(0);
+    expect(await find([{ kind: 'region', value: { zone: 'eu' } }])).toHaveLength(0); // shape matters
+    expect(await find([{ kind: 'tags', value: ['cheap', 'fast'] }])).toHaveLength(0); // order matters
+
+    // Everything asked for must be present.
+    expect(
+      await find([
+        { kind: 'region', value: { zone: 'eu', tier: 1 } },
+        { kind: 'missing', value: 1 },
+      ]),
+    ).toHaveLength(0);
+
+    expect(
+      matchesCriteria(plugin, { constraints: [{ kind: 'region', value: { zone: 'eu', tier: 1 } }] }),
+    ).toBe(true);
+  });
+
   test('C-5: CapabilityRef MUST include a version', () => {
     expect(() =>
       assertValidCapabilityRef({ plugin: identityOf('p'), name: 'x', version: '' }),
