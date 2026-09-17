@@ -10,8 +10,9 @@
 
 ```bash
 pnpm install
-pnpm run verify   # typecheck + 一致性套件 + 两道闸门
-pnpm run demo     # 三个互不相识的插件，端到端跑一遍
+pnpm run verify               # typecheck + 一致性套件 + 五个示例 + 两道闸门
+pnpm run conformance:external # 语言中立的 harness，跑两套独立实现
+pnpm run demo                 # 三个互不相识的插件，端到端跑一遍
 ```
 
 ---
@@ -28,7 +29,7 @@ Interaction Layer  (v3.1)   组合后如何互动      Channel · Subscription �
 State Mode         (v3.2)   如何共享状态        StateCell · Revision · StateUpdate · StateWatcher · CAS
         │
         ▼
-Transport                   消息物理上怎么走     Memory · Socket · Redis · NATS
+Transport                   消息物理上怎么走     Memory（进程内） · Socket（跨进程）
 ```
 
 五个动作：**发现 · 连接 · 激活 · 通信 · 调用**。
@@ -37,15 +38,17 @@ Transport                   消息物理上怎么走     Memory · Socket · Red
 
 ## 状态
 
-| 层 | 规范 | 实现 |
-|---|---|---|
-| v3.0.0-core | ✅ FROZEN | ✅ |
-| v3.1.0-interaction | ✅ FROZEN | ✅ |
-| v3.2.0-state | ✅ FROZEN | ✅ |
+| 层 | 规范 | TypeScript 参考实现 | Go 独立实现 |
+|---|---|---|---|
+| v3.0.0-core | ✅ FROZEN | ✅ | ✅ |
+| v3.1.0-interaction | ✅ FROZEN | ✅ | — |
+| v3.2.0-state | ✅ FROZEN | ✅ | — |
 
 ```
-不变量覆盖   209 / 209     冻结闸门 PASS
-测试         149 passed    typecheck clean    doc links resolve
+不变量覆盖   209 / 209          冻结闸门 PASS
+测试         199 passed         typecheck clean   doc links resolve
+语言中立检查  33 checks × 2 实现   （Go 的 Composition Core 与 TypeScript 参考实现）
+示例         5 个，全部自检
 标签         v3.2.0
 ```
 
@@ -60,6 +63,8 @@ Transport                   消息物理上怎么走     Memory · Socket · Red
 | [快速上手](docs/guides/getting-started.md) | 跑起来 |
 | [写一个插件](docs/guides/write-a-plugin.md) | 从零写一个可组合的插件 |
 | [实现一个 Transport](docs/guides/write-a-transport.md) | 换一种传输 |
+| [用另一种语言实现 EaPP](docs/guides/implement-in-another-language.md) | 移植这份协议 |
+| [一致性 harness](conformance/README.md) | 用外部工具检查任何一个实现 |
 | [参考](docs/README.md#参考) | 每个实体一页 |
 | [规范](docs/spec/v3.0.0-core.md) | **规范性文本，唯一裁决者** |
 | [一致性报告](docs/CONFORMANCE.md) | 声明了什么、没声明什么 |
@@ -79,21 +84,24 @@ docs/
 ├── analysis/      非规范性 —— 缺陷分析与评审记录
 └── CONFORMANCE.md 一致性声明与已登记的偏离
 
-packages/
-├── core/               v3.0 Composition Core
-├── interaction/        v3.1 Interaction Layer
-├── state/              v3.2 State Mode
-├── transport/memory/   参考 Transport
-└── runtime/            五个动作的门面（不是第四层）
+packages/              TypeScript 参考实现（一份证据，不是协议本身）
+├── core/                v3.0 Composition Core
+├── interaction/         v3.1 Interaction Layer
+├── state/               v3.2 State Mode
+├── transport/memory/    进程内 Transport
+├── transport/socket/    跨进程 Transport（broker + 客户端）
+└── runtime/             五个动作的门面（不是第四层）
 
-tests/conformance/      与 docs/spec 一一对应的不变量测试
-tools/                  冻结闸门 + 文档链接闸门
-examples/               可运行示例
+implementations/go/    从规范独立实现的 Composition Core（第二份证据）
+conformance/           语言中立的 driver 协议与 harness
+tests/conformance/     与 docs/spec 一一对应的不变量测试
+tools/                 冻结闸门 + 文档链接闸门
+examples/              5 个可运行且自检的示例
 ```
 
 ---
 
-## 两道闸门
+## 三道闸门
 
 **冻结闸门** —— v3.0 §19.2 是一条冻结条款：*每个不变量 MUST 至少有一个对应的测试用例。*
 
@@ -110,20 +118,32 @@ pnpm run check:invariants
 pnpm run check:docs
 ```
 
+**跨实现一致性** —— 前两道闸门检查的都是**这一个**仓库。第三道把实现放进黑盒：
+
+```bash
+pnpm run conformance:external
+```
+
+它按 [driver 协议](conformance/driver.md) 拉起一个可执行文件，只看它的 JSON 回答。
+harness 不 import 任何 `@eapp/*`，所以它检查的是协议的表面行为，而不是参考实现的内部。
+**两套独立实现跑同一批检查** —— 这件事本身在检查 harness 是否公平。
+
 ---
 
 ## 开发
 
 ```bash
-pnpm run typecheck        tsc --noEmit（strict + exactOptionalPropertyTypes）
-pnpm test                 vitest（直接跑源码）
-pnpm run check:invariants 冻结闸门
-pnpm run check:docs       文档链接闸门
-pnpm run verify           以上全部
-pnpm run demo             端到端演示
+pnpm run typecheck              tsc --noEmit（strict + exactOptionalPropertyTypes）
+pnpm test                       vitest（直接跑源码）
+pnpm run check:invariants       冻结闸门
+pnpm run check:docs             文档链接闸门
+pnpm run conformance:external   跨实现一致性（Go + TypeScript）
+pnpm run examples               5 个示例，各自自检
+pnpm run verify                 以上（除 conformance:external 外）全部
+pnpm run demo                   端到端演示
 ```
 
-Node ≥ 20 · pnpm 10 · TypeScript 7 · vitest 5。
+Node ≥ 20 · pnpm 10 · TypeScript 7 · vitest 5 · Go 1.24+（只在跑 Go 实现时需要）。
 
 ---
 
@@ -131,7 +151,8 @@ Node ≥ 20 · pnpm 10 · TypeScript 7 · vitest 5。
 
 先读 [贡献指南](CONTRIBUTING.md) 与 [治理](GOVERNANCE.md)。
 
-一句话版本：**规范是产品，实现是它的第一份证据。**
+一句话版本：**规范是产品，实现只是它的证据 —— 而证据至少要两份，
+一份是同一个作者写的就不算数。**
 改一处语义的成本比改十处实现高得多，所以规范变更比代码变更受到更严格的约束。
 
 ---

@@ -131,8 +131,11 @@ export class Driver {
     const pending = this.#pending.get(frame.id);
     if (!pending) {
       // A reply nobody asked for is a protocol violation; dropping it silently would
-      // hide a driver answering the wrong request.
-      throw new Error(`driver answered unknown request id ${String(frame.id)}`);
+      // hide a driver answering the wrong request. The raw line goes in the message,
+      // because "unknown id null" on its own gives nothing to act on.
+      throw new Error(
+        `driver answered unknown request id ${String(frame.id)} — line was: ${line.slice(0, 300)}`,
+      );
     }
     this.#pending.delete(frame.id);
     if (frame.ok === true) pending.resolve(frame.result ?? {});
