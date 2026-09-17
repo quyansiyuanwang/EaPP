@@ -14,10 +14,12 @@
     "test:watch": "vitest",
     "test:conformance": "vitest run tests/conformance",
     "check:invariants": "node tools/check-invariants.mjs",
+    "demo": "tsx examples/hello-plugins/index.ts",
     "verify": "pnpm run typecheck && pnpm run test && pnpm run check:invariants"
   },
   "devDependencies": {
     "@types/node": "^22.20.3",
+    "tsx": "^4.23.13",
     "typescript": "^7.0.2",
     "vitest": "^5.0.1"
   }

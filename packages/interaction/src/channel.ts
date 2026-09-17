@@ -75,12 +75,19 @@ export class ChannelImpl implements ManagedChannel {
     return this.#state;
   }
 
-  /** §2.5: OPEN --connect--> ACTIVE */
+  /**
+   * §2.5: OPEN --connect--> ACTIVE.
+   *
+   * DRAINING --connect--> ACTIVE is also accepted, because v3.1 §8.2 requires the
+   * re-derivation in both directions: a Binding returning to ACTIVE MUST put its
+   * Channels back in service, and a DRAINING channel that could never resume would make
+   * that impossible.
+   */
   async connect(): Promise<void> {
     if (this.#state === 'CLOSED') {
       throw new EappError('EAPP_CHANNEL_CLOSED', `channel ${this.id} is closed`);
     }
-    if (this.#state === 'OPEN') this.#state = 'ACTIVE';
+    if (this.#state === 'OPEN' || this.#state === 'DRAINING') this.#state = 'ACTIVE';
   }
 
   /** §2.5: ACTIVE --drain--> DRAINING (stop accepting new work, finish in-flight). */

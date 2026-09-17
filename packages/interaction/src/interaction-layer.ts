@@ -80,13 +80,25 @@ export class InteractionLayerImpl implements InteractionLayer {
     this.#bindings = options.bindings;
     this.#nextId = options.nextId ?? (() => `ch-${++channelSeq}`);
 
-    // CH-2 / CC-2: a Channel never outlives its Binding. Binding state is DERIVED by the
-    // Composition Core (v3.0 §6.4), so this layer reacts to the notification rather than
-    // polling or recomputing it.
+    // CH-2 / CC-2 / §8.2: a Channel never outlives its Binding, and it follows the
+    // Binding's derived state in both directions.
+    //
+    //   Binding ACTIVE   -> Channel OPEN or ACTIVE
+    //   Binding DORMANT  -> Channel DRAINING   (stop taking new work, finish in-flight)
+    //   Binding CLOSED   -> Channel CLOSED
+    //
+    // Binding state is DERIVED by the Composition Core (v3.0 §6.4), so this layer reacts
+    // to the notification rather than polling or recomputing it.
     options.bindings?.onBindingStateChange?.((bindingId, state) => {
-      if (state !== 'CLOSED') return;
       for (const channel of this.#channels.values()) {
-        if (channel.binding === bindingId) void channel.close();
+        if (channel.binding !== bindingId) continue;
+        if (state === 'CLOSED') {
+          void channel.close();
+        } else if (state === 'DORMANT') {
+          void channel.drain();
+        } else {
+          void channel.connect().catch(() => undefined);
+        }
       }
     });
   }

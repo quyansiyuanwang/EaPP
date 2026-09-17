@@ -88,6 +88,10 @@ function fakeBindings() {
   };
   return {
     source,
+    setState(id: string, state: 'ACTIVE' | 'DORMANT' | 'CLOSED') {
+      states.set(id, state);
+      for (const listener of listeners) listener(id, state);
+    },
     close(id: string) {
       states.set(id, 'CLOSED');
       for (const listener of listeners) listener(id, 'CLOSED');
@@ -116,13 +120,21 @@ describe('CH: Channel', () => {
     );
   });
 
-  test('CC-2: closing the Binding closes its Channels', async () => {
+  test('CC-2 / §8.2: a Channel follows its Binding through DORMANT and back', async () => {
     const transport = makeTransport();
     const bindings = fakeBindings();
     const interaction = new InteractionLayerImpl({ transport, bindings: bindings.source });
     const channel = await interaction.createChannel({ binding: 'b1', mode: 'event' });
     await channel.connect();
     expect(channel.state).toBe('ACTIVE');
+
+    // Binding DORMANT -> Channel DRAINING: stop taking new work, finish what is in flight.
+    bindings.setState('b1', 'DORMANT');
+    expect(channel.state).toBe<string>('DRAINING');
+
+    // ...and back again when the composition recovers.
+    bindings.setState('b1', 'ACTIVE');
+    expect(channel.state).toBe<string>('ACTIVE');
 
     bindings.close('b1');
     expect(channel.state).toBe<string>('CLOSED');
