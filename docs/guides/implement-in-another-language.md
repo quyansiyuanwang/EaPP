@@ -229,7 +229,7 @@ Go 里用 `*T` 或 `sql.Null` 之类表达；Rust 里用 `Option` 但要注意 `
 但声明应当可验证。本仓库的声明长这样（v3.0 §19.3 的冻结接口）：
 
 ```json
-{ "eappVersion": "3.2.0",
+{ "eappVersion": "3.3.0",
   "levels": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "I1", "I2", "I3", "I4", "I5", "I6", "I7"],
   "testSuite": "conformance@3.2.0-r3",
   "passed": 210, "total": 210 }

@@ -38,7 +38,7 @@ pnpm run conformance:external     # 33 条检查 × 2 套实现
 
 ```json
 {
-  "eappVersion": "3.2.0",
+  "eappVersion": "3.3.0",
   "levels": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "I1", "I2", "I3", "I4", "I5", "I6", "I7"],
   "testSuite": "conformance@3.2.0-r3",
   "passed": 210,

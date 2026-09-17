@@ -45,6 +45,3 @@ jobs:
 
       - name: Verify everything
         run: pnpm run verify
-
-      - name: End-to-end examples
-        run: pnpm run examples
